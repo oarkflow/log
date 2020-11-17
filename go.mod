@@ -1,3 +1,3 @@
-module github.com/phuslu/log
+module github.com/sujit-baniya/log
 
-go 1.13
+go 1.15

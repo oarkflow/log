@@ -15,6 +15,9 @@ type MultiWriter struct {
 	// WarnWriter specifies the level greater than or equal to ErrorLevel writes to
 	ErrorWriter Writer
 
+	// MonitorWriter specifies any log collector used to write to
+	MonitorWriter Writer
+
 	// ConsoleWriter specifies the console writer
 	ConsoleWriter Writer
 
@@ -28,6 +31,7 @@ func (w *MultiWriter) Close() (err error) {
 		w.InfoWriter,
 		w.WarnWriter,
 		w.ErrorWriter,
+		w.MonitorWriter,
 		w.ConsoleWriter,
 	} {
 		if writer == nil {
@@ -45,6 +49,12 @@ func (w *MultiWriter) Close() (err error) {
 // WriteEntry implements entryWriter.
 func (w *MultiWriter) WriteEntry(e *Entry) (n int, err error) {
 	var err1 error
+	if w.MonitorWriter != nil {
+		n, err1 = w.MonitorWriter.WriteEntry(e)
+		if err1 != nil && err == nil {
+			err = err1
+		}
+	}
 	switch e.Level {
 	case noLevel, PanicLevel, FatalLevel, ErrorLevel:
 		if w.ErrorWriter != nil {
