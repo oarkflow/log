@@ -53,7 +53,7 @@ type Logger struct {
 	// TimeField defines the time filed name in output.  It uses "time" in if empty.
 	TimeField string
 
-	// TimeFormat specifies the time format in output. It uses `TimeFormatRFC3339Milli` if empty.
+	// TimeFormat specifies the time format in output. It uses RFC3339 with millisecond if empty.
 	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formated as UNIX timestamp.
 	TimeFormat string
 
@@ -86,8 +86,9 @@ type FileWriter struct {
 	// is to retain all old log files
 	MaxBackups int
 
-	// EnsureFolder ensures the file directory creation before writing.
-	EnsureFolder bool
+	// TimeFormat specifies the time format of filename. It uses `%Y-%m-%dT%H-%M-%S` if empty.
+	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formated as UNIX timestamp.
+	TimeFormat string
 
 	// LocalTime determines if the time used for formatting the timestamps in
 	// log files is the computer's local time.  The default is to use UTC time.
@@ -98,6 +99,9 @@ type FileWriter struct {
 
 	// ProcessID determines if the pid used for formatting in log files.
 	ProcessID bool
+
+	// EnsureFolder ensures the file directory creation before writing.
+	EnsureFolder bool
 }
 
 // ConsoleWriter parses the JSON input and writes it in an
@@ -454,7 +458,7 @@ func BenchmarkZeroLog(b *testing.B) {
 
 func BenchmarkPhusLog(b *testing.B) {
 	logger := log.Logger{
-		TimeFormat: log.TimeFormatRFC3339Milli,
+		TimeFormat: "", // uses rfc3339 by default
 		Writer:     log.IOWriter{ioutil.Discard},
 	}
 	for i := 0; i < b.N; i++ {
