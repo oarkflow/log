@@ -46,7 +46,7 @@ type FileWriter struct {
 
 	// CleanBackups specifies an optional cleanup function of log backups after rotation,
 	// if not set, the default behavior is to delete more than MaxBackups log files.
-	CleanBackups func(files []os.FileInfo, maxBackups int)
+	CleanBackups func(filename string, maxBackups int, matches []os.FileInfo)
 
 	// make aligncheck happy
 	mu   sync.Mutex
@@ -190,24 +190,24 @@ func (w *FileWriter) rotate() (err error) {
 		prefix, extgz := base[:len(base)-len(ext)]+".", ext+".gz"
 		exclude := prefix + "error" + ext
 
-		items := make([]os.FileInfo, 0)
+		matches := make([]os.FileInfo, 0)
 		for _, info := range infos {
 			name := info.Name()
 			if name != base && name != exclude &&
 				strings.HasPrefix(name, prefix) &&
 				(strings.HasSuffix(name, ext) || strings.HasSuffix(name, extgz)) {
-				items = append(items, info)
+				matches = append(matches, info)
 			}
 		}
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].ModTime().Unix() < items[j].ModTime().Unix()
+		sort.Slice(matches, func(i, j int) bool {
+			return matches[i].ModTime().Unix() < matches[j].ModTime().Unix()
 		})
 
 		if w.CleanBackups != nil {
-			w.CleanBackups(items, w.MaxBackups)
+			w.CleanBackups(w.Filename, w.MaxBackups, matches)
 		} else {
-			for i := 0; i < len(items)-w.MaxBackups-1; i++ {
-				os.Remove(filepath.Join(dir, items[i].Name()))
+			for i := 0; i < len(matches)-w.MaxBackups-1; i++ {
+				os.Remove(filepath.Join(dir, matches[i].Name()))
 			}
 		}
 	}(w.file.Name())
