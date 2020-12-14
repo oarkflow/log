@@ -4,9 +4,9 @@
 
 ## Features
 
-* No Dependencies
-* Intuitive Interfaces
-* Consistent Writers
+* Dependency Free
+* Simple and Clean Interface
+* Consistent Writer
     - `IOWriter`, *io.Writer wrapper*
     - `FileWriter`, *rotating & effective*
     - `ConsoleWriter`, *colorful & formatting*
@@ -20,7 +20,7 @@
     - `Logger.Grpc`, *grpclog.LoggerV2*
     - `Logger.Logr`, *logr.Logger*
     - `Logger.Sugar`, *zap.SugaredLogger*
-* Useful utility functions
+* Useful utility function
     - `Goid()`, *current goroutine id*
     - `NewXID()`, *create a tracing id*
     - `Fastrandn(n uint32)`, *fast pseudorandom uint32 in [0,n)*
@@ -86,11 +86,7 @@ type FileWriter struct {
 	// is to retain all old log files
 	MaxBackups int
 
-	// CleanBackups specifies an optional cleanup function of log backups after rotation,
-	// if not set, the default behavior is to delete more than MaxBackups log files.
-	CleanBackups func(filename string, maxBackups int, matches []os.FileInfo)
-
-	// TimeFormat specifies the time format of filename. It uses `2006-01-02T15-04-05` as default format.
+	// TimeFormat specifies the time format of filename, uses `2006-01-02T15-04-05` as default format.
 	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formated as UNIX timestamp.
 	TimeFormat string
 
@@ -106,10 +102,14 @@ type FileWriter struct {
 
 	// EnsureFolder ensures the file directory creation before writing.
 	EnsureFolder bool
+
+	// Cleaner specifies an optional cleanup function of log backups after rotation,
+	// if not set, the default behavior is to delete more than MaxBackups log files.
+	Cleaner func(filename string, maxBackups int, matches []os.FileInfo)
 }
 
-// ConsoleWriter parses the JSON input and writes it in an
-// (optionally) colorized, human-friendly format to Writer.
+// ConsoleWriter parses the JSON input and writes it in a colorized, human-friendly format to Writer.
+// IMPORTANT: Don't use ConsoleWriter on critical path of a high concurrency and low latency application.
 //
 // Default output format:
 //     {Time} {Level} {Goid} {Caller} > {Message} {Key}={Value} {Key}={Value}
@@ -123,12 +123,12 @@ type ConsoleWriter struct {
 	// EndWithMessage determines if output message in the end of line.
 	EndWithMessage bool
 
+	// Writer is the output destination. using os.Stderr if empty.
+	Writer io.Writer
+
 	// Formatter specifies an optional text formatter for creating a customized output,
 	// If it is set, ColorOutput, QuoteString and EndWithMessage will be ignored.
 	Formatter func(w io.Writer, args *FormatterArgs) (n int, err error)
-
-	// Writer is the output destination. using os.Stderr if empty.
-	Writer io.Writer
 }
 ```
 > Note: FileWriter/ConsoleWriter implements log.Writer and io.Writer interfaces both.
@@ -146,15 +146,13 @@ import (
 )
 
 func main() {
-	log.Printf("Hello, %s", "世界")
 	log.Info().Str("foo", "bar").Int("number", 42).Msg("hi, phuslog")
-	log.Error().Str("foo", "bar").Int("number", 42).Msgf("oops, %s", "phuslog")
+	log.Info().Msgf("foo=%s number=%d error=%+v", "bar", 42, "an error")
 }
 
 // Output:
-//   {"time":"2020-03-22T09:58:41.828Z","message":"Hello, 世界"}
 //   {"time":"2020-03-22T09:58:41.828Z","level":"info","foo":"bar","number":42,"message":"hi, phuslog"}
-//   {"time":"2020-03-22T09:58:41.828Z","level":"error","foo":"bar","number":42,"message":"oops, phuslog"}
+//   {"time":"2020-03-22T09:58:41.828Z","level":"info","message":"foo=bar number=42 error=an error"}
 ```
 > Note: By default log writes to `os.Stderr`
 
@@ -181,6 +179,8 @@ To log to a rotating file, use `FileWriter`. [![playground][play-file-img]][play
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/phuslu/log"
@@ -189,12 +189,21 @@ import (
 
 func main() {
 	logger := log.Logger{
-		Level:      log.ParseLevel("info"),
-		Writer:     &log.FileWriter{
-			Filename:     "logs/main.log",
-			FileMode:     0600,
-			MaxSize:      50*1024*1024,
-			MaxBackups:   7,
+		Level: log.ParseLevel("info"),
+		Writer: &log.FileWriter{
+			Filename: "logs/main.log",
+			FileMode: 0600,
+			MaxSize:  50 * 1024 * 1024,
+			Cleaner:  func(filename string, maxBackups int, matches []os.FileInfo) {
+				var dir = filepath.Dir(filename)
+				var total int64
+				for i := len(matches) - 1; i >= 0; i-- {
+					total += matches[i].Size()
+					if total > 10*1024*1024*1024 {
+						os.Remove(filepath.Join(dir, matches[i].Name()))
+					}
+				}
+			},
 			EnsureFolder: true,
 			LocalTime:    false,
 		},
@@ -218,7 +227,8 @@ To log a human-friendly, colorized output, use `ConsoleWriter`. [![playground][p
 ```go
 if log.IsTerminal(os.Stderr.Fd()) {
 	log.DefaultLogger = log.Logger{
-		Caller: 1,
+		TimeFormat: "15:04:05",
+		Caller:     1,
 		Writer: &log.ConsoleWriter{
 			ColorOutput:    true,
 			QuoteString:    true,
@@ -245,6 +255,7 @@ package main
 import (
 	"io"
 	"fmt"
+	"strings"
 	"github.com/phuslu/log"
 )
 
@@ -254,8 +265,8 @@ var glog = (&log.Logger{
 	TimeFormat: "0102 15:04:05.999999",
 	Writer: &log.ConsoleWriter{
 		Formatter: func (w io.Writer, a *log.FormatterArgs) (int, error) {
-			return fmt.Fprintf(w, "%c%s %s %s] %s\n%s",
-				a.Level[0]-32, a.Time, a.Goid, a.Caller, a.Message, a.Stack)
+			return fmt.Fprintf(w, "%c%s %s %s] %s\n%s", strings.ToUpper(a.Level)[0],
+				a.Time, a.Goid, a.Caller, a.Message, a.Stack)
 		},
 	},
 }).Sugar(nil)
@@ -264,7 +275,6 @@ func main() {
 	glog.Infof("hello glog %s", "Info")
 	glog.Warnf("hello glog %s", "Warn")
 	glog.Errorf("hello glog %s", "Error")
-	glog.Fatalf("hello glog %s", "Fatal")
 }
 
 // Output:
@@ -405,6 +415,37 @@ func main() {
 }
 ```
 
+### User-defined Data Structure
+
+To log with user-defined struct effectively, implements `MarshalLogObject`. [![playground][play-marshal-img]][play-marshal]
+
+```go
+package main
+
+import (
+	"github.com/phuslu/log"
+)
+
+type User struct {
+	ID   int
+	Name string
+	Pass string
+}
+
+func (u *User) MarshalLogObject(e *log.Entry) {
+	e.Int("id", u.ID).Str("name", u.Name).Str("password", "***")
+}
+
+func main() {
+	log.Info().Object("user", &User{1, "neo", "123456"}).Msg("")
+	log.Info().EmbedObject(&User{2, "john", "abc"}).Msg("")
+}
+
+// Output:
+//   {"time":"2020-07-12T05:03:43.949Z","level":"info","user":{"id":1,"name":"neo","password":"***"}}
+//   {"time":"2020-07-12T05:03:43.949Z","level":"info","id":2,"name":"john","password":"***"}
+```
+
 ### Contextual Fields
 
 To add preserved `key:value` pairs to each entry, use `NewContext`. [![playground][play-context-img]][play-context]
@@ -472,10 +513,9 @@ func BenchmarkPhusLog(b *testing.B) {
 ```
 A Performance result as below, for daily benchmark results see [github actions][benchmark]
 ```
-
-BenchmarkZap-4       	 9126241	      1293 ns/op	     128 B/op	       1 allocs/op
-BenchmarkZeroLog-4   	18187580	       638 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPhusLog-4   	42004888	       287 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZap-4       	12432787	       996 ns/op	     128 B/op	       1 allocs/op
+BenchmarkZeroLog-4   	24231926	       496 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLog-4   	62495569	       194 ns/op	       0 B/op	       0 allocs/op
 ```
 
 ## A Real World Example
@@ -613,13 +653,15 @@ This log is heavily inspired by [zerolog][zerolog], [glog][glog], [quicktemplate
 [play-customize]: https://play.golang.org/p/emTsJJKUGXZ
 [play-file-img]: https://img.shields.io/badge/playground-nS--ILxFyhHM-29BEB0?style=flat&logo=go
 [play-file]: https://play.golang.org/p/nS-ILxFyhHM
-[play-pretty-img]: https://img.shields.io/badge/playground-CD1LClgEvS4-29BEB0?style=flat&logo=go
-[play-pretty]: https://play.golang.org/p/CD1LClgEvS4
-[pretty-img]: https://user-images.githubusercontent.com/195836/90043818-37d99900-dcff-11ea-9f93-7de9ce8b7316.png
+[play-pretty-img]: https://img.shields.io/badge/playground-SCcXG33esvI-29BEB0?style=flat&logo=go
+[play-pretty]: https://play.golang.org/p/SCcXG33esvI
+[pretty-img]: https://user-images.githubusercontent.com/195836/101993218-cda82380-3cf3-11eb-9aa2-b8b1c832a72e.png
 [play-formatting-img]: https://img.shields.io/badge/playground-8ScRKLIrehG-29BEB0?style=flat&logo=go
 [play-formatting]: https://play.golang.org/p/8ScRKLIrehG
 [play-context-img]: https://img.shields.io/badge/playground-oAVAo302faf-29BEB0?style=flat&logo=go
 [play-context]: https://play.golang.org/p/oAVAo302faf
+[play-marshal-img]: https://img.shields.io/badge/playground-NxMoqaiVxHM-29BEB0?style=flat&logo=go
+[play-marshal]: https://play.golang.org/p/NxMoqaiVxHM
 [play-sugar-img]: https://img.shields.io/badge/playground-iGfD_wOcA6c-29BEB0?style=flat&logo=go
 [play-sugar]: https://play.golang.org/p/iGfD_wOcA6c
 [play-interceptor]: https://play.golang.org/p/upmVP5cO62Y

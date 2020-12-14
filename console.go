@@ -12,8 +12,8 @@ func IsTerminal(fd uintptr) bool {
 	return isTerminal(fd, runtime.GOOS, runtime.GOARCH)
 }
 
-// ConsoleWriter parses the JSON input and writes it in an
-// (optionally) colorized, human-friendly format to Writer.
+// ConsoleWriter parses the JSON input and writes it in a colorized, human-friendly format to Writer.
+// IMPORTANT: Don't use ConsoleWriter on critical path of a high concurrency and low latency application.
 //
 // Default output format:
 //     {Time} {Level} {Goid} {Caller} > {Message} {Key}={Value} {Key}={Value}

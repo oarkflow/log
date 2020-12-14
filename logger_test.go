@@ -174,6 +174,37 @@ func TestLoggerInterface(t *testing.T) {
 		Msgf("this is a cyclic struct test")
 }
 
+type testMarshalObject struct {
+	I int
+	N string
+}
+
+func (o *testMarshalObject) MarshalLogObject(e *Entry) {
+	e.Int("id", o.I).Str("name", o.N)
+}
+
+type nullMarshalObject struct {
+	I int
+	N string
+}
+
+func (o *nullMarshalObject) MarshalLogObject(e *Entry) {
+}
+
+func TestLoggerObject(t *testing.T) {
+	logger := Logger{
+		Level: ParseLevel("debug"),
+	}
+
+	logger.Info().Object("test_object", &testMarshalObject{1, "foo"}).Msg("this is a object test")
+	logger.Info().EmbedObject(&testMarshalObject{1, "foo"}).Msg("this is a object test")
+	logger.Info().Object("empty_object", nil).Msg("this is a empty_object test")
+	logger.Info().EmbedObject(nil).Msg("this is a empty_object test")
+
+	logger.Info().Object("null_object", &nullMarshalObject{3, "xxx"}).Msg("this is a empty_object test")
+	logger.Info().EmbedObject(&nullMarshalObject{3, "xxx"}).Msg("this is a empty_object test")
+}
+
 func TestLoggerLog(t *testing.T) {
 	logger := Logger{
 		Level: ParseLevel("debug"),

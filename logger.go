@@ -48,6 +48,12 @@ func (w IOWriter) WriteEntry(e *Entry) (n int, err error) {
 	return w.Writer.Write(e.buf)
 }
 
+// LogObjectMarshaler provides a strongly-typed and encoding-agnostic interface
+// to be implemented by types used with Entry's Object methods.
+type LogObjectMarshaler interface {
+	MarshalLogObject(e *Entry)
+}
+
 // A Logger represents an active logging object that generates lines of JSON output to an io.Writer.
 type Logger struct {
 	// Level defines log levels.
@@ -67,15 +73,13 @@ type Logger struct {
 	Writer Writer
 }
 
-const (
-	// TimeFormatUnix defines a time format that makes time fields to be
-	// serialized as Unix timestamp integers.
-	TimeFormatUnix = "\x01"
+// TimeFormatUnix defines a time format that makes time fields to be
+// serialized as Unix timestamp integers.
+const TimeFormatUnix = "\x01"
 
-	// TimeFormatUnixMs defines a time format that makes time fields to be
-	// serialized as Unix timestamp integers in milliseconds.
-	TimeFormatUnixMs = "\x02"
-)
+// TimeFormatUnixMs defines a time format that makes time fields to be
+// serialized as Unix timestamp integers in milliseconds.
+const TimeFormatUnixMs = "\x02"
 
 const (
 	needStack = 0b0001
@@ -561,7 +565,9 @@ func (e *Entry) AnErr(key string, err error) *Entry {
 			b.B = b.B[:0]
 			fmt.Fprintf(b, "%+v", err)
 			e.key("stack")
+			e.buf = append(e.buf, '"')
 			e.bytes(b.B)
+			e.buf = append(e.buf, '"')
 			if cap(b.B) <= bbcap {
 				bbpool.Put(b)
 			}
@@ -569,7 +575,13 @@ func (e *Entry) AnErr(key string, err error) *Entry {
 	}
 
 	e.key(key)
-	e.string(err.Error())
+	if o, ok := err.(LogObjectMarshaler); ok {
+		o.MarshalLogObject(e)
+	} else {
+		e.buf = append(e.buf, '"')
+		e.string(err.Error())
+		e.buf = append(e.buf, '"')
+	}
 	return e
 }
 
@@ -588,7 +600,9 @@ func (e *Entry) Errs(key string, errs []error) *Entry {
 		if err == nil {
 			e.buf = append(e.buf, "null"...)
 		} else {
+			e.buf = append(e.buf, '"')
 			e.string(err.Error())
+			e.buf = append(e.buf, '"')
 		}
 	}
 	e.buf = append(e.buf, ']')
@@ -646,6 +660,16 @@ func (e *Entry) Int64(key string, i int64) *Entry {
 	}
 	e.key(key)
 	e.buf = strconv.AppendInt(e.buf, i, 10)
+	return e
+}
+
+// Uint adds the field key with i as a uint to the entry.
+func (e *Entry) Uint(key string, i uint) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = strconv.AppendUint(e.buf, uint64(i), 10)
 	return e
 }
 
@@ -725,7 +749,9 @@ func (e *Entry) Str(key string, val string) *Entry {
 		return nil
 	}
 	e.key(key)
+	e.buf = append(e.buf, '"')
 	e.string(val)
+	e.buf = append(e.buf, '"')
 	return e
 }
 
@@ -748,7 +774,9 @@ func (e *Entry) Stringer(key string, val fmt.Stringer) *Entry {
 	}
 	e.key(key)
 	if val != nil {
+		e.buf = append(e.buf, '"')
 		e.string(val.String())
+		e.buf = append(e.buf, '"')
 	} else {
 		e.buf = append(e.buf, "null"...)
 	}
@@ -762,7 +790,9 @@ func (e *Entry) GoStringer(key string, val fmt.GoStringer) *Entry {
 	}
 	e.key(key)
 	if val != nil {
+		e.buf = append(e.buf, '"')
 		e.string(val.GoString())
+		e.buf = append(e.buf, '"')
 	} else {
 		e.buf = append(e.buf, "null"...)
 	}
@@ -780,7 +810,9 @@ func (e *Entry) Strs(key string, vals []string) *Entry {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
 		}
+		e.buf = append(e.buf, '"')
 		e.string(val)
+		e.buf = append(e.buf, '"')
 	}
 	e.buf = append(e.buf, ']')
 	return e
@@ -825,7 +857,9 @@ func (e *Entry) Bytes(key string, val []byte) *Entry {
 		return nil
 	}
 	e.key(key)
+	e.buf = append(e.buf, '"')
 	e.bytes(val)
+	e.buf = append(e.buf, '"')
 	return e
 }
 
@@ -838,7 +872,9 @@ func (e *Entry) BytesOrNil(key string, val []byte) *Entry {
 	if val == nil {
 		e.buf = append(e.buf, "null"...)
 	} else {
+		e.buf = append(e.buf, '"')
 		e.bytes(val)
+		e.buf = append(e.buf, '"')
 	}
 	return e
 }
@@ -983,12 +1019,14 @@ func (e *Entry) Msg(msg string) {
 		return
 	}
 	if e.need&needStack != 0 {
-		e.buf = append(e.buf, ",\"stack\":"...)
+		e.buf = append(e.buf, ",\"stack\":\""...)
 		e.bytes(stacks(false))
+		e.buf = append(e.buf, '"')
 	}
 	if msg != "" {
-		e.buf = append(e.buf, ",\"message\":"...)
+		e.buf = append(e.buf, ",\"message\":\""...)
 		e.string(msg)
+		e.buf = append(e.buf, '"')
 	}
 	e.buf = append(e.buf, '}', '\n')
 	e.w.WriteEntry(e)
@@ -1001,6 +1039,40 @@ func (e *Entry) Msg(msg string) {
 	if cap(e.buf) <= bbcap {
 		epool.Put(e)
 	}
+}
+
+// Msgf sends the entry with formatted msg added as the message field if not empty.
+func (e *Entry) Msgf(format string, v ...interface{}) {
+	if e == nil {
+		return
+	}
+	if e.need&needStack != 0 {
+		e.buf = append(e.buf, ",\"stack\":\""...)
+		e.bytes(stacks(false))
+		e.buf = append(e.buf, '"')
+	}
+	e.buf = append(e.buf, ",\"message\":\""...)
+	fmt.Fprintf(escapeWriter{e}, format, v...)
+	e.buf = append(e.buf, '"', '}', '\n')
+	e.w.WriteEntry(e)
+	if (e.need&needExit != 0) && notTest {
+		os.Exit(255)
+	}
+	if (e.need&needPanic != 0) && notTest {
+		panic(fmt.Sprintf(format, v...))
+	}
+	if cap(e.buf) <= bbcap {
+		epool.Put(e)
+	}
+}
+
+type escapeWriter struct {
+	e *Entry
+}
+
+func (w escapeWriter) Write(p []byte) (int, error) {
+	w.e.bytes(p)
+	return len(p), nil
 }
 
 func (e *Entry) key(key string) {
@@ -1018,7 +1090,7 @@ func (e *Entry) caller(_ uintptr, file string, line int, _ bool) {
 	e.buf = append(e.buf, ':')
 	e.buf = strconv.AppendInt(e.buf, int64(line), 10)
 	e.buf = append(e.buf, "\",\"goid\":"...)
-	e.buf = strconv.AppendInt(e.buf, Goid(), 10)
+	e.buf = strconv.AppendInt(e.buf, int64(goid()), 10)
 }
 
 var escapes = [256]bool{
@@ -1034,7 +1106,6 @@ var escapes = [256]bool{
 }
 
 func (e *Entry) escape(b []byte) {
-	e.buf = append(e.buf, '"')
 	n := len(b)
 	j := 0
 	if n > 0 {
@@ -1086,7 +1157,6 @@ func (e *Entry) escape(b []byte) {
 		}
 	}
 	e.buf = append(e.buf, b[j:]...)
-	e.buf = append(e.buf, '"')
 }
 
 func (e *Entry) string(s string) {
@@ -1100,11 +1170,7 @@ func (e *Entry) string(s string) {
 			return
 		}
 	}
-
-	e.buf = append(e.buf, '"')
 	e.buf = append(e.buf, s...)
-	e.buf = append(e.buf, '"')
-
 	return
 }
 
@@ -1115,11 +1181,7 @@ func (e *Entry) bytes(b []byte) {
 			return
 		}
 	}
-
-	e.buf = append(e.buf, '"')
 	e.buf = append(e.buf, b...)
-	e.buf = append(e.buf, '"')
-
 	return
 }
 
@@ -1147,18 +1209,25 @@ func (e *Entry) Interface(key string, i interface{}) *Entry {
 	}
 	e.key(key)
 
+	if o, ok := i.(LogObjectMarshaler); ok {
+		o.MarshalLogObject(e)
+		return e
+	}
+
 	b := bbpool.Get().(*bb)
 	b.B = b.B[:0]
 
 	enc := json.NewEncoder(b)
 	enc.SetEscapeHTML(false)
 
+	e.buf = append(e.buf, '"')
 	err := enc.Encode(i)
 	if err != nil {
 		e.string("marshaling error: " + err.Error())
 	} else {
 		e.bytes(b.B[:len(b.B)-1])
 	}
+	e.buf = append(e.buf, '"')
 
 	if cap(b.B) <= bbcap {
 		bbpool.Put(b)
@@ -1167,21 +1236,40 @@ func (e *Entry) Interface(key string, i interface{}) *Entry {
 	return e
 }
 
-// Msgf sends the entry with formatted msg added as the message field if not empty.
-func (e *Entry) Msgf(format string, v ...interface{}) {
+// Object marshals an object that implement the LogObjectMarshaler interface.
+func (e *Entry) Object(key string, obj LogObjectMarshaler) *Entry {
 	if e == nil {
-		return
+		return nil
 	}
 
-	b := bbpool.Get().(*bb)
-	b.B = b.B[:0]
-
-	fmt.Fprintf(b, format, v...)
-	e.Msg(b2s(b.B))
-
-	if cap(b.B) <= bbcap {
-		bbpool.Put(b)
+	e.key(key)
+	if obj == nil {
+		e.buf = append(e.buf, "null"...)
+		return e
 	}
+
+	n := len(e.buf)
+	obj.MarshalLogObject(e)
+	if n < len(e.buf) {
+		e.buf[n] = '{'
+		e.buf = append(e.buf, '}')
+	} else {
+		e.buf = append(e.buf, "null"...)
+	}
+
+	return e
+}
+
+// EmbedObject marshals and Embeds an object that implement the LogObjectMarshaler interface.
+func (e *Entry) EmbedObject(obj LogObjectMarshaler) *Entry {
+	if e == nil {
+		return nil
+	}
+
+	if obj != nil {
+		obj.MarshalLogObject(e)
+	}
+	return e
 }
 
 func (e *Entry) print(args []interface{}) {
@@ -1213,6 +1301,9 @@ func (e *Entry) keysAndValues(keysAndValues ...interface{}) *Entry {
 			continue
 		}
 		switch v := v.(type) {
+		case LogObjectMarshaler:
+			e.key(key)
+			v.MarshalLogObject(e)
 		case Context:
 			e.Dict(key, v)
 		case []time.Duration:
@@ -1290,6 +1381,9 @@ func (e *Entry) Fields(fields map[string]interface{}) *Entry {
 			continue
 		}
 		switch v := v.(type) {
+		case LogObjectMarshaler:
+			e.key(k)
+			v.MarshalLogObject(e)
 		case Context:
 			e.Dict(k, v)
 		case []time.Duration:

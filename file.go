@@ -44,10 +44,6 @@ type FileWriter struct {
 	// is to retain all old log files
 	MaxBackups int
 
-	// CleanBackups specifies an optional cleanup function of log backups after rotation,
-	// if not set, the default behavior is to delete more than MaxBackups log files.
-	CleanBackups func(filename string, maxBackups int, matches []os.FileInfo)
-
 	// make aligncheck happy
 	mu   sync.Mutex
 	size int64
@@ -57,7 +53,7 @@ type FileWriter struct {
 	// mode is 0644
 	FileMode os.FileMode
 
-	// TimeFormat specifies the time format of filename. It uses `%Y-%m-%dT%H-%M-%S` if empty.
+	// TimeFormat specifies the time format of filename, uses `2006-01-02T15-04-05` as default format.
 	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formated as UNIX timestamp.
 	TimeFormat string
 
@@ -73,6 +69,10 @@ type FileWriter struct {
 
 	// EnsureFolder ensures the file directory creation before writing.
 	EnsureFolder bool
+
+	// Cleaner specifies an optional cleanup function of log backups after rotation,
+	// if not set, the default behavior is to delete more than MaxBackups log files.
+	Cleaner func(filename string, maxBackups int, matches []os.FileInfo)
 }
 
 // WriteEntry implements Writer.  If a write would cause the log file to be larger
@@ -152,7 +152,7 @@ func (w *FileWriter) Rotate() (err error) {
 
 func (w *FileWriter) rotate() (err error) {
 	var file *os.File
-	file, err = os.OpenFile(w.fileinfo(timeNow()))
+	file, err = os.OpenFile(w.fileargs(timeNow()))
 	if err != nil {
 		return err
 	}
@@ -203,8 +203,8 @@ func (w *FileWriter) rotate() (err error) {
 			return matches[i].ModTime().Unix() < matches[j].ModTime().Unix()
 		})
 
-		if w.CleanBackups != nil {
-			w.CleanBackups(w.Filename, w.MaxBackups, matches)
+		if w.Cleaner != nil {
+			w.Cleaner(w.Filename, w.MaxBackups, matches)
 		} else {
 			for i := 0; i < len(matches)-w.MaxBackups-1; i++ {
 				os.Remove(filepath.Join(dir, matches[i].Name()))
@@ -216,7 +216,7 @@ func (w *FileWriter) rotate() (err error) {
 }
 
 func (w *FileWriter) create() (err error) {
-	w.file, err = os.OpenFile(w.fileinfo(timeNow()))
+	w.file, err = os.OpenFile(w.fileargs(timeNow()))
 	if err != nil {
 		return err
 	}
@@ -230,8 +230,8 @@ func (w *FileWriter) create() (err error) {
 	return
 }
 
-// fileinfo returns a new filename, flag, perm based on the original name and the given time.
-func (w *FileWriter) fileinfo(now time.Time) (filename string, flag int, perm os.FileMode) {
+// fileargs returns a new filename, flag, perm based on the original name and the given time.
+func (w *FileWriter) fileargs(now time.Time) (filename string, flag int, perm os.FileMode) {
 	if !w.LocalTime {
 		now = now.UTC()
 	}
