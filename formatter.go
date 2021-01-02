@@ -1,7 +1,7 @@
 package log
 
 import (
-	"reflect"
+	"github.com/goccy/go-reflect"
 	"strconv"
 	"unicode/utf16"
 	"unicode/utf8"
