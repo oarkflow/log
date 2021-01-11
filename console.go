@@ -55,10 +55,12 @@ func (w *ConsoleWriter) WriteEntry(e *Entry) (int, error) {
 	return w.Write(e.buf)
 }
 
+const bbcap = 1 << 16
+
 func (w *ConsoleWriter) write(out io.Writer, p []byte) (int, error) {
-	b := bbpool.Get().(*bb)
-	defer bbpool.Put(b)
-	b.B = append(b.B[:0], p...)
+	b := bbget()
+	defer bbput(b)
+	b.B = append(b.B, p...)
 
 	var args FormatterArgs
 	parseFormatterArgs(b.B, &args)
@@ -74,9 +76,8 @@ func (w *ConsoleWriter) write(out io.Writer, p []byte) (int, error) {
 }
 
 func (w *ConsoleWriter) format(out io.Writer, args *FormatterArgs) (n int, err error) {
-	b := bbpool.Get().(*bb)
-	b.B = b.B[:0]
-	defer bbpool.Put(b)
+	b := bbget()
+	defer bbput(b)
 
 	const (
 		Reset   = "\x1b[0m"

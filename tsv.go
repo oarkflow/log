@@ -4,7 +4,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -111,6 +113,18 @@ func (e *TSVEntry) TimestampMS() *TSVEntry {
 	return e
 }
 
+func (e *TSVEntry) Caller(depth int) *TSVEntry {
+	_, file, line, _ := runtime.Caller(depth)
+	if i := strings.LastIndex(file, "/"); i >= 0 {
+		file = file[i+1:]
+	}
+	e.buf = append(e.buf, file...)
+	e.buf = append(e.buf, ':')
+	e.buf = strconv.AppendInt(e.buf, int64(line), 10)
+	e.buf = append(e.buf, e.sep)
+	return e
+}
+
 // Bool append the b as a bool to the entry.
 func (e *TSVEntry) Bool(b bool) *TSVEntry {
 	if b {
@@ -185,6 +199,11 @@ func (e *TSVEntry) Uint16(i uint16) *TSVEntry {
 
 // Uint8 adds a uint8 to the entry.
 func (e *TSVEntry) Uint8(i uint8) *TSVEntry {
+	return e.Uint64(uint64(i))
+}
+
+// Uint adds a uint to the entry.
+func (e *TSVEntry) Uint(i uint) *TSVEntry {
 	return e.Uint64(uint64(i))
 }
 

@@ -29,7 +29,6 @@ var DefaultLogger = Logger{
 type Entry struct {
 	buf   []byte
 	Level Level
-	need  uint32
 	w     Writer
 }
 
@@ -80,12 +79,6 @@ const TimeFormatUnix = "\x01"
 // TimeFormatUnixMs defines a time format that makes time fields to be
 // serialized as Unix timestamp integers in milliseconds.
 const TimeFormatUnixMs = "\x02"
-
-const (
-	needStack = 0b0001
-	needExit  = 0b0010
-	needPanic = 0b0100
-)
 
 // Trace starts a new message with trace level.
 func Trace() (e *Entry) {
@@ -289,14 +282,6 @@ func (l *Logger) header(level Level) *Entry {
 	e := epool.Get().(*Entry)
 	e.buf = e.buf[:0]
 	e.Level = level
-	switch level {
-	default:
-		e.need = 0
-	case FatalLevel:
-		e.need = needStack | needExit
-	case PanicLevel:
-		e.need = needStack | needPanic
-	}
 	if l.Writer != nil {
 		e.w = l.Writer
 	} else {
@@ -557,21 +542,6 @@ func (e *Entry) AnErr(key string, err error) *Entry {
 		e.key(key)
 		e.buf = append(e.buf, "null"...)
 		return e
-	}
-
-	if e.need&needStack == 0 {
-		if _, ok := err.(fmt.Formatter); ok {
-			b := bbpool.Get().(*bb)
-			b.B = b.B[:0]
-			fmt.Fprintf(b, "%+v", err)
-			e.key("stack")
-			e.buf = append(e.buf, '"')
-			e.bytes(b.B)
-			e.buf = append(e.buf, '"')
-			if cap(b.B) <= bbcap {
-				bbpool.Put(b)
-			}
-		}
 	}
 
 	e.key(key)
@@ -990,7 +960,9 @@ func (e *Entry) Caller(depth int) *Entry {
 // Stack enables stack trace printing for the error passed to Err().
 func (e *Entry) Stack() *Entry {
 	if e != nil {
-		e.need |= needStack
+		e.buf = append(e.buf, ",\"stack\":\""...)
+		e.bytes(stacks(false))
+		e.buf = append(e.buf, '"')
 	}
 	return e
 }
@@ -1018,26 +990,49 @@ func (e *Entry) Msg(msg string) {
 	if e == nil {
 		return
 	}
-	if e.need&needStack != 0 {
-		e.buf = append(e.buf, ",\"stack\":\""...)
-		e.bytes(stacks(false))
-		e.buf = append(e.buf, '"')
-	}
 	if msg != "" {
 		e.buf = append(e.buf, ",\"message\":\""...)
 		e.string(msg)
-		e.buf = append(e.buf, '"')
+		e.buf = append(e.buf, "\"}\n"...)
+	} else {
+		e.buf = append(e.buf, '}', '\n')
 	}
-	e.buf = append(e.buf, '}', '\n')
 	e.w.WriteEntry(e)
-	if (e.need&needExit != 0) && notTest {
+	if (e.Level == FatalLevel) && notTest {
 		os.Exit(255)
 	}
-	if (e.need&needPanic != 0) && notTest {
+	if (e.Level == PanicLevel) && notTest {
 		panic(msg)
 	}
 	if cap(e.buf) <= bbcap {
 		epool.Put(e)
+	}
+}
+
+type bb struct {
+	B []byte
+}
+
+func (b *bb) Write(p []byte) (int, error) {
+	b.B = append(b.B, p...)
+	return len(p), nil
+}
+
+var bbpool = sync.Pool{
+	New: func() interface{} {
+		return new(bb)
+	},
+}
+
+func bbget() *bb {
+	b := bbpool.Get().(*bb)
+	b.B = b.B[:0]
+	return b
+}
+
+func bbput(b *bb) {
+	if cap(b.B) <= bbcap {
+		bbpool.Put(b)
 	}
 }
 
@@ -1046,33 +1041,27 @@ func (e *Entry) Msgf(format string, v ...interface{}) {
 	if e == nil {
 		return
 	}
-	if e.need&needStack != 0 {
-		e.buf = append(e.buf, ",\"stack\":\""...)
-		e.bytes(stacks(false))
-		e.buf = append(e.buf, '"')
-	}
+	b := bbget()
 	e.buf = append(e.buf, ",\"message\":\""...)
-	fmt.Fprintf(escapeWriter{e}, format, v...)
-	e.buf = append(e.buf, '"', '}', '\n')
-	e.w.WriteEntry(e)
-	if (e.need&needExit != 0) && notTest {
-		os.Exit(255)
-	}
-	if (e.need&needPanic != 0) && notTest {
-		panic(fmt.Sprintf(format, v...))
-	}
-	if cap(e.buf) <= bbcap {
-		epool.Put(e)
-	}
+	fmt.Fprintf(b, format, v...)
+	e.bytes(b.B)
+	e.buf = append(e.buf, '"')
+	bbput(b)
+	e.Msg("")
 }
 
-type escapeWriter struct {
-	e *Entry
-}
-
-func (w escapeWriter) Write(p []byte) (int, error) {
-	w.e.bytes(p)
-	return len(p), nil
+// Msgv sends the entry with msgs added as the message field if not empty.
+func (e *Entry) Msgs(args ...interface{}) {
+	if e == nil {
+		return
+	}
+	b := bbget()
+	e.buf = append(e.buf, ",\"message\":\""...)
+	fmt.Fprint(b, args...)
+	e.bytes(b.B)
+	e.buf = append(e.buf, '"')
+	bbput(b)
+	e.Msg("")
 }
 
 func (e *Entry) key(key string) {
@@ -1185,53 +1174,30 @@ func (e *Entry) bytes(b []byte) {
 	return
 }
 
-type bb struct {
-	B []byte
-}
-
-func (b *bb) Write(p []byte) (int, error) {
-	b.B = append(b.B, p...)
-	return len(p), nil
-}
-
-var bbpool = sync.Pool{
-	New: func() interface{} {
-		return new(bb)
-	},
-}
-
-const bbcap = 1 << 16
-
 // Interface adds the field key with i marshaled using reflection.
 func (e *Entry) Interface(key string, i interface{}) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
 
 	if o, ok := i.(LogObjectMarshaler); ok {
-		o.MarshalLogObject(e)
-		return e
+		return e.Object(key, o)
 	}
 
-	b := bbpool.Get().(*bb)
-	b.B = b.B[:0]
-
+	e.key(key)
+	e.buf = append(e.buf, '"')
+	b := bbget()
 	enc := json.NewEncoder(b)
 	enc.SetEscapeHTML(false)
-
-	e.buf = append(e.buf, '"')
 	err := enc.Encode(i)
 	if err != nil {
 		e.string("marshaling error: " + err.Error())
+		e.buf = append(e.buf, '"')
 	} else {
-		e.bytes(b.B[:len(b.B)-1])
+		e.buf = append(e.buf, b.B...)
+		e.buf[len(e.buf)-1] = '"'
 	}
-	e.buf = append(e.buf, '"')
-
-	if cap(b.B) <= bbcap {
-		bbpool.Put(b)
-	}
+	bbput(b)
 
 	return e
 }
@@ -1272,20 +1238,8 @@ func (e *Entry) EmbedObject(obj LogObjectMarshaler) *Entry {
 	return e
 }
 
-func (e *Entry) print(args []interface{}) {
-	b := bbpool.Get().(*bb)
-	b.B = b.B[:0]
-
-	fmt.Fprint(b, args...)
-	e.Msg(b2s(b.B))
-
-	if cap(b.B) <= bbcap {
-		bbpool.Put(b)
-	}
-}
-
-// keysAndValues sends keysAndValues to Entry
-func (e *Entry) keysAndValues(keysAndValues ...interface{}) *Entry {
+// KeysAndValues sends keysAndValues to Entry
+func (e *Entry) KeysAndValues(keysAndValues ...interface{}) *Entry {
 	if e == nil {
 		return nil
 	}
