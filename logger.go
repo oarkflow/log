@@ -482,6 +482,48 @@ func (e *Entry) TimeFormat(key string, timefmt string, t time.Time) *Entry {
 	return e
 }
 
+// Times append append a formated as string array using time.RFC3339Nano.
+func (e *Entry) Times(key string, a []time.Time) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+
+	e.buf = append(e.buf, '[')
+	for i, t := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = append(e.buf, '"')
+		e.buf = t.AppendFormat(e.buf, time.RFC3339Nano)
+		e.buf = append(e.buf, '"')
+	}
+	e.buf = append(e.buf, ']')
+
+	return e
+}
+
+// TimesFormat append append a formated as string array using timefmt.
+func (e *Entry) TimesFormat(key string, timefmt string, a []time.Time) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+
+	e.buf = append(e.buf, '[')
+	for i, t := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = append(e.buf, '"')
+		e.buf = t.AppendFormat(e.buf, timefmt)
+		e.buf = append(e.buf, '"')
+	}
+	e.buf = append(e.buf, ']')
+
+	return e
+}
+
 // Bool append append the val as a bool to the entry.
 func (e *Entry) Bool(key string, b bool) *Entry {
 	if e == nil {
@@ -704,6 +746,176 @@ func (e *Entry) Uint16(key string, i uint16) *Entry {
 // Uint8 adds the field key with i as a uint8 to the entry.
 func (e *Entry) Uint8(key string, i uint8) *Entry {
 	return e.Uint64(key, uint64(i))
+}
+
+// Ints64 adds the field key with i as a []int64 to the entry.
+func (e *Entry) Ints64(key string, a []int64) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendInt(e.buf, n, 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Ints32 adds the field key with i as a []int32 to the entry.
+func (e *Entry) Ints32(key string, a []int32) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendInt(e.buf, int64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Ints16 adds the field key with i as a []int16 to the entry.
+func (e *Entry) Ints16(key string, a []int16) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendInt(e.buf, int64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Ints8 adds the field key with i as a []int8 to the entry.
+func (e *Entry) Ints8(key string, a []int8) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendInt(e.buf, int64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Ints adds the field key with i as a []int to the entry.
+func (e *Entry) Ints(key string, a []int) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendInt(e.buf, int64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Uint64 adds the field key with i as a []uint64 to the entry.
+func (e *Entry) Uints64(key string, a []uint64) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendUint(e.buf, n, 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Uints32 adds the field key with i as a []uint32 to the entry.
+func (e *Entry) Uints32(key string, a []uint32) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendUint(e.buf, uint64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Uints16 adds the field key with i as a []uint16 to the entry.
+func (e *Entry) Uints16(key string, a []uint16) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendUint(e.buf, uint64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Uints8 adds the field key with i as a []uint8 to the entry.
+func (e *Entry) Uints8(key string, a []uint8) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendUint(e.buf, uint64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
+// Uints adds the field key with i as a []uint to the entry.
+func (e *Entry) Uints(key string, a []uint) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.key(key)
+	e.buf = append(e.buf, '[')
+	for i, n := range a {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = strconv.AppendUint(e.buf, uint64(n), 10)
+	}
+	e.buf = append(e.buf, ']')
+	return e
 }
 
 // RawJSON adds already encoded JSON to the log line under key.
@@ -1063,7 +1275,7 @@ func (e *Entry) Msgf(format string, v ...interface{}) {
 	e.Msg("")
 }
 
-// Msgv sends the entry with msgs added as the message field if not empty.
+// Msgs sends the entry with msgs added as the message field if not empty.
 func (e *Entry) Msgs(args ...interface{}) {
 	if e == nil {
 		return
@@ -1499,8 +1711,3 @@ func absClock(abs uint64) (hour, min, sec int)
 //go:noescape
 //go:linkname Fastrandn runtime.fastrandn
 func Fastrandn(x uint32) uint32
-
-// Event is an alias for Entry
-//
-// Deprecated: Use Entry instead.
-type Event = Entry
