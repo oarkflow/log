@@ -437,7 +437,7 @@ func main() {
 
 ### User-defined Data Structure
 
-To log with user-defined struct effectively, implements `MarshalLogObject`. [![playground][play-marshal-img]][play-marshal]
+To log with user-defined struct effectively, implements `MarshalObject`. [![playground][play-marshal-img]][play-marshal]
 
 ```go
 package main
@@ -452,7 +452,7 @@ type User struct {
 	Pass string
 }
 
-func (u *User) MarshalLogObject(e *log.Entry) {
+func (u *User) MarshalObject(e *log.Entry) {
 	e.Int("id", u.ID).Str("name", u.Name).Str("password", "***")
 }
 
@@ -687,8 +687,8 @@ This log is heavily inspired by [zerolog][zerolog], [glog][glog], [gjson][gjson]
 [play-formatting]: https://play.golang.org/p/UmJmLxYXwRO
 [play-context-img]: https://img.shields.io/badge/playground-oAVAo302faf-29BEB0?style=flat&logo=go
 [play-context]: https://play.golang.org/p/oAVAo302faf
-[play-marshal-img]: https://img.shields.io/badge/playground-NxMoqaiVxHM-29BEB0?style=flat&logo=go
-[play-marshal]: https://play.golang.org/p/NxMoqaiVxHM
+[play-marshal-img]: https://img.shields.io/badge/playground-SoQdwQOaQR2-29BEB0?style=flat&logo=go
+[play-marshal]: https://play.golang.org/p/SoQdwQOaQR2
 [play-interceptor]: https://play.golang.org/p/upmVP5cO62Y
 [play-interceptor-img]: https://img.shields.io/badge/playground-upmVP5cO62Y-29BEB0?style=flat&logo=go
 [benchmark]: https://github.com/phuslu/log/actions?query=workflow%3Abenchmark

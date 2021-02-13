@@ -38,8 +38,9 @@ func TestLoggerInfo(t *testing.T) {
 		Bool("bool", true).
 		Bools("bools", []bool{false}).
 		Bools("bools", []bool{true, false}).
-		Dur("1_hour", time.Hour).
-		Durs("hour_minute_second", []time.Duration{time.Hour, time.Minute, time.Second}).
+		Dur("1_sec", time.Second+2*time.Millisecond+30*time.Microsecond+400*time.Nanosecond).
+		Dur("1_sec", -time.Second+2*time.Millisecond+30*time.Microsecond+400*time.Nanosecond).
+		Durs("hour_minute_second", []time.Duration{time.Hour, time.Minute, time.Second, -time.Second}).
 		Err(errors.New("test error")).
 		Err(nil).
 		AnErr("an_error", fmt.Errorf("an %w", errors.New("test error"))).
@@ -86,6 +87,8 @@ func TestLoggerInfo(t *testing.T) {
 		Time("now_1", timeNow()).
 		Times("now_2", []time.Time{timeNow(), timeNow()}).
 		TimeFormat("now_3", time.RFC3339, timeNow()).
+		TimeFormat("now_3_1", TimeFormatUnix, timeNow()).
+		TimeFormat("now_3_2", TimeFormatUnixMs, timeNow()).
 		TimesFormat("now_4", time.RFC3339, []time.Time{timeNow(), timeNow()}).
 		TimeDiff("time_diff_1", timeNow().Add(time.Second), timeNow()).
 		TimeDiff("time_diff_2", time.Time{}, timeNow()).
@@ -203,7 +206,7 @@ type testMarshalObject struct {
 	N string
 }
 
-func (o *testMarshalObject) MarshalLogObject(e *Entry) {
+func (o *testMarshalObject) MarshalObject(e *Entry) {
 	e.Int("id", o.I).Str("name", o.N)
 }
 
@@ -212,7 +215,7 @@ type nullMarshalObject struct {
 	N string
 }
 
-func (o *nullMarshalObject) MarshalLogObject(e *Entry) {
+func (o *nullMarshalObject) MarshalObject(e *Entry) {
 }
 
 func TestLoggerObject(t *testing.T) {
