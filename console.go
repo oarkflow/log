@@ -50,16 +50,13 @@ func (w *ConsoleWriter) Close() (err error) {
 	return
 }
 
-// WriteEntry implements Writer.
-func (w *ConsoleWriter) WriteEntry(e *Entry) (int, error) {
-	return w.Write(e.buf)
-}
-
 const bbcap = 1 << 16
 
 func (w *ConsoleWriter) write(out io.Writer, p []byte) (int, error) {
-	b := bbget()
-	defer bbput(b)
+	b := bbpool.Get().(*bb)
+	b.B = b.B[:0]
+	defer bbpool.Put(b)
+
 	b.B = append(b.B, p...)
 
 	var args FormatterArgs
@@ -73,11 +70,13 @@ func (w *ConsoleWriter) write(out io.Writer, p []byte) (int, error) {
 	default:
 		return w.format(out, &args)
 	}
+
 }
 
 func (w *ConsoleWriter) format(out io.Writer, args *FormatterArgs) (n int, err error) {
-	b := bbget()
-	defer bbput(b)
+	b := bbpool.Get().(*bb)
+	b.B = b.B[:0]
+	defer bbpool.Put(b)
 
 	const (
 		Reset   = "\x1b[0m"
@@ -179,4 +178,3 @@ func (w *ConsoleWriter) format(out io.Writer, args *FormatterArgs) (n int, err e
 }
 
 var _ Writer = (*ConsoleWriter)(nil)
-var _ io.Writer = (*ConsoleWriter)(nil)

@@ -63,11 +63,6 @@ type Logger struct {
 	// Writer specifies the writer of output. It uses a wrapped os.Stderr Writer in if empty.
 	Writer Writer
 }
-
-// Writer defines an entry writer interface.
-type Writer interface {
-	WriteEntry(*Entry) (int, error)
-}
 ```
 
 ### FileWriter & ConsoleWriter
@@ -134,13 +129,13 @@ type ConsoleWriter struct {
 	Formatter func(w io.Writer, args *FormatterArgs) (n int, err error)
 }
 ```
-> Note: FileWriter/ConsoleWriter implements log.Writer and io.Writer interfaces both.
+> Note: FileWriter implements log.Writer and io.Writer interfaces both, it is a drop-in replacement of [lumberjack][lumberjack].
 
 ## Getting Started
 
 ### Simple Logging Example
 
-A out of box example. [![playground][play-simple-img]][play-simple]
+An out of box example. [![playground][play-simple-img]][play-simple]
 ```go
 package main
 
@@ -163,21 +158,30 @@ func main() {
 
 To customize logger filed name and format. [![playground][play-customize-img]][play-customize]
 ```go
-log.DefaultLogger = log.Logger{
-	Level:      log.InfoLevel,
-	Caller:     1,
-	TimeField:  "date",
-	TimeFormat: "2006-01-02",
-	Writer:     &log.IOWriter{os.Stdout},
+package main
+
+import (
+	"github.com/phuslu/log"
+)
+
+func main() {
+	log.DefaultLogger = log.Logger{
+		Level:      log.InfoLevel,
+		Caller:     1,
+		TimeField:  "date",
+		TimeFormat: "2006-01-02",
+		Writer:     &log.IOWriter{os.Stdout},
+	}
+
+	log.Info().Str("foo", "bar").Msgf("hello %s", "world")
 }
-log.Info().Str("foo", "bar").Msgf("hello %s", "world")
 
 // Output: {"date":"2019-07-04","level":"info","caller":"prog.go:16","foo":"bar","message":"hello world"}
 ```
 
 ### Rotating File Writer
 
-To log to a rotating file, use `FileWriter`. [![playground][play-file-img]][play-file]
+To log to a daily-rotating file, use `FileWriter`. [![playground][play-file-img]][play-file]
 ```go
 package main
 
@@ -194,26 +198,62 @@ func main() {
 	logger := log.Logger{
 		Level: log.ParseLevel("info"),
 		Writer: &log.FileWriter{
-			Filename: "logs/main.log",
-			FileMode: 0600,
-			MaxSize:  50 * 1024 * 1024,
+			Filename:     "logs/main.log",
+			FileMode:     0600,
+			MaxSize:      100 * 1024 * 1024,
+			MaxBackups:   7,
+			EnsureFolder: true,
+			LocalTime:    true,
+		},
+	}
+
+	runner := cron.New(cron.WithLocation(time.Local))
+	runner.AddFunc("0 0 * * *", func() { logger.Writer.(*log.FileWriter).Rotate() })
+	go runner.Run()
+
+	for {
+		time.Sleep(time.Second)
+		logger.Info().Msg("hello world")
+	}
+}
+```
+
+### Rotating File Writer within a total size
+
+To rotating log file hourly and keep in a total size, use `FileWriter.Cleaner`.
+```go
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/phuslu/log"
+	"github.com/robfig/cron/v3"
+)
+
+func main() {
+	logger := log.Logger{
+		Level: log.ParseLevel("info"),
+		Writer: &log.FileWriter{
+			Filename: "main.log",
+			MaxSize:  500 * 1024 * 1024,
 			Cleaner:  func(filename string, maxBackups int, matches []os.FileInfo) {
 				var dir = filepath.Dir(filename)
 				var total int64
 				for i := len(matches) - 1; i >= 0; i-- {
 					total += matches[i].Size()
-					if total > 10*1024*1024*1024 {
+					if total > 5*1024*1024*1024 {
 						os.Remove(filepath.Join(dir, matches[i].Name()))
 					}
 				}
 			},
-			EnsureFolder: true,
-			LocalTime:    false,
 		},
 	}
 
-	runner := cron.New(cron.WithSeconds(), cron.WithLocation(time.UTC))
-	runner.AddFunc("0 0 * * * *", func() { logger.Writer.(*log.FileWriter).Rotate() })
+	runner := cron.New(cron.WithLocation(time.UTC))
+	runner.AddFunc("0 * * * *", func() { logger.Writer.(*log.FileWriter).Rotate() })
 	go runner.Run()
 
 	for {
@@ -287,6 +327,7 @@ log.DefaultLogger.Writer = &log.MultiWriter{
 	ConsoleWriter: &log.ConsoleWriter{ColorOutput: true},
 	ConsoleLevel:  log.ErrorLevel,
 }
+
 log.Info().Int("number", 42).Str("foo", "bar").Msg("a info log")
 log.Warn().Int("number", 42).Str("foo", "bar").Msg("a warn log")
 log.Error().Int("number", 42).Str("foo", "bar").Msg("a error log")
@@ -348,12 +389,15 @@ To log to a syslog server, using `SyslogWriter`.
 
 ```go
 log.DefaultLogger.Writer = &log.SyslogWriter{
-	Network : "unixgram",                     // "tcp"
-	Address : "/run/systemd/journal/syslog",  // "192.168.0.2:601"
+	// Network : "unixgram",
+	// Address : "/run/systemd/journal/syslog",
+	Network : "tcp",
+	Address : "192.168.0.2:601",
 	Tag     : "",
 	Marker  : "@cee:",
 	Dial    : net.Dial,
 }
+
 log.Info().Msg("hi")
 
 // Output: <6>Oct 5 16:25:38 [237]: @cee:{"time":"2020-10-05T16:25:38.026Z","level":"info","message":"hi"}
@@ -363,6 +407,7 @@ To log to linux systemd journald, using `JournalWriter`.
 
 ```go
 log.DefaultLogger.Writer = &log.JournalWriter{}
+
 log.Info().Int("number", 42).Str("foo", "bar").Msg("hello world")
 ```
 
@@ -373,6 +418,7 @@ log.DefaultLogger.Writer = &log.EventlogWriter{
 	Source: ".NET Runtime",
 	ID:     1000,
 }
+
 log.Info().Int("number", 42).Str("foo", "bar").Msg("hello world")
 ```
 
@@ -501,41 +547,68 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var fakeMessage = "Test logging, but use a somewhat realistic message length. "
+var msg = "The quick brown fox jumps over the lazy dog"
 
-func BenchmarkZap(b *testing.B) {
+func BenchmarkZapNegative(b *testing.B) {
+	logger := zap.New(zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.AddSync(ioutil.Discard),
+		zapcore.ErrorLevel,
+	))
+	for i := 0; i < b.N; i++ {
+		logger.Info(msg, zap.String("rate", "15"), zap.Int("low", 16), zap.Float32("high", 123.2))
+	}
+}
+
+func BenchmarkZeroLogNegative(b *testing.B) {
+	logger := zerolog.New(ioutil.Discard).With().Timestamp().Logger()
+	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+	for i := 0; i < b.N; i++ {
+		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
+	}
+}
+
+func BenchmarkPhusLogNegative(b *testing.B) {
+	logger := log.Logger{Level: log.ErrorLevel, Writer: log.IOWriter{ioutil.Discard}}
+	for i := 0; i < b.N; i++ {
+		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
+	}
+}
+
+func BenchmarkZapPositive(b *testing.B) {
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(ioutil.Discard),
 		zapcore.InfoLevel,
 	))
 	for i := 0; i < b.N; i++ {
-		logger.Info(fakeMessage, zap.String("foo", "bar"), zap.Int("int", 42))
+		logger.Info(msg, zap.String("rate", "15"), zap.Int("low", 16), zap.Float32("high", 123.2))
 	}
 }
 
-func BenchmarkZeroLog(b *testing.B) {
+func BenchmarkZeroLogPositive(b *testing.B) {
 	logger := zerolog.New(ioutil.Discard).With().Timestamp().Logger()
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	for i := 0; i < b.N; i++ {
-		logger.Info().Str("foo", "bar").Int("int", 42).Msg(fakeMessage)
+		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
 	}
 }
 
-func BenchmarkPhusLog(b *testing.B) {
-	logger := log.Logger{
-		TimeFormat: "", // uses rfc3339 by default
-		Writer:     log.IOWriter{ioutil.Discard},
-	}
+func BenchmarkPhusLogPositive(b *testing.B) {
+	logger := log.Logger{Writer: log.IOWriter{ioutil.Discard}}
 	for i := 0; i < b.N; i++ {
-		logger.Info().Str("foo", "bar").Int("int", 42).Msg(fakeMessage)
+		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
 	}
 }
 ```
 A Performance result as below, for daily benchmark results see [github actions][benchmark]
 ```
-BenchmarkZap-4       	12432787	       996 ns/op	     128 B/op	       1 allocs/op
-BenchmarkZeroLog-4   	24231926	       496 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPhusLog-4   	62495569	       194 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapNegative-4       	81238924	       136 ns/op	     192 B/op	       1 allocs/op
+BenchmarkZeroLogNegative-4   	728349476	        16.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLogNegative-4   	735726589	        16.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapPositive-4       	 7970824	      1531 ns/op	     192 B/op	       1 allocs/op
+BenchmarkZeroLogPositive-4   	14024011	       866 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLogPositive-4   	24633658	       480 ns/op	       0 B/op	       0 allocs/op
 ```
 This library uses the following special techniques to achieve better performance,
 1. handwriting time formatting

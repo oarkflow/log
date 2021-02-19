@@ -288,7 +288,7 @@ var timeOffset, timeZone = func() (int64, string) {
 }()
 
 func (l *Logger) header(level Level) *Entry {
-	if uint32(level) < atomic.LoadUint32((*uint32)(&l.Level)) {
+	if l.shouldnot(level) {
 		return nil
 	}
 	e := epool.Get().(*Entry)
@@ -309,11 +309,129 @@ func (l *Logger) header(level Level) *Entry {
 	}
 	switch l.TimeFormat {
 	case "":
-		e.rfc3339(walltime())
+		sec, nsec := walltime()
+		var tmp [32]byte
+		var buf []byte
+		if timeOffset == 0 {
+			// "2006-01-02T15:04:05.999Z"
+			tmp[25] = '"'
+			tmp[24] = 'Z'
+			buf = tmp[:26]
+		} else {
+			// "2006-01-02T15:04:05.999Z07:00"
+			tmp[30] = '"'
+			tmp[29] = timeZone[5]
+			tmp[28] = timeZone[4]
+			tmp[27] = timeZone[3]
+			tmp[26] = timeZone[2]
+			tmp[25] = timeZone[1]
+			tmp[24] = timeZone[0]
+			buf = tmp[:31]
+		}
+		// date time
+		sec += 9223372028715321600 + timeOffset // unixToInternal + internalToAbsolute + timeOffset
+		year, month, day, _ := absDate(uint64(sec), true)
+		hour, minute, second := absClock(uint64(sec))
+		// year
+		a := year / 100 * 2
+		b := year % 100 * 2
+		tmp[0] = '"'
+		tmp[1] = smallsString[a]
+		tmp[2] = smallsString[a+1]
+		tmp[3] = smallsString[b]
+		tmp[4] = smallsString[b+1]
+		// month
+		month *= 2
+		tmp[5] = '-'
+		tmp[6] = smallsString[month]
+		tmp[7] = smallsString[month+1]
+		// day
+		day *= 2
+		tmp[8] = '-'
+		tmp[9] = smallsString[day]
+		tmp[10] = smallsString[day+1]
+		// hour
+		hour *= 2
+		tmp[11] = 'T'
+		tmp[12] = smallsString[hour]
+		tmp[13] = smallsString[hour+1]
+		// minute
+		minute *= 2
+		tmp[14] = ':'
+		tmp[15] = smallsString[minute]
+		tmp[16] = smallsString[minute+1]
+		// second
+		second *= 2
+		tmp[17] = ':'
+		tmp[18] = smallsString[second]
+		tmp[19] = smallsString[second+1]
+		// milli seconds
+		a = int(nsec) / 1000000
+		b = a % 100 * 2
+		tmp[20] = '.'
+		tmp[21] = byte('0' + a/100)
+		tmp[22] = smallsString[b]
+		tmp[23] = smallsString[b+1]
+		// append to e.buf
+		e.buf = append(e.buf, buf...)
 	case TimeFormatUnix:
-		e.unix(walltime())
+		sec, _ := walltime()
+		// 1595759807
+		var tmp [10]byte
+		// seconds
+		b := sec % 100 * 2
+		sec /= 100
+		tmp[9] = smallsString[b+1]
+		tmp[8] = smallsString[b]
+		b = sec % 100 * 2
+		sec /= 100
+		tmp[7] = smallsString[b+1]
+		tmp[6] = smallsString[b]
+		b = sec % 100 * 2
+		sec /= 100
+		tmp[5] = smallsString[b+1]
+		tmp[4] = smallsString[b]
+		b = sec % 100 * 2
+		sec /= 100
+		tmp[3] = smallsString[b+1]
+		tmp[2] = smallsString[b]
+		b = sec % 100 * 2
+		tmp[1] = smallsString[b+1]
+		tmp[0] = smallsString[b]
+		// append to e.buf
+		e.buf = append(e.buf, tmp[:]...)
 	case TimeFormatUnixMs:
-		e.unixms(walltime())
+		sec, nsec := walltime()
+		// 1595759807105
+		var tmp [13]byte
+		// milli seconds
+		a := int64(nsec) / 1000000
+		b := a % 100 * 2
+		tmp[12] = smallsString[b+1]
+		tmp[11] = smallsString[b]
+		tmp[10] = byte('0' + a/100)
+		// seconds
+		b = sec % 100 * 2
+		sec /= 100
+		tmp[9] = smallsString[b+1]
+		tmp[8] = smallsString[b]
+		b = sec % 100 * 2
+		sec /= 100
+		tmp[7] = smallsString[b+1]
+		tmp[6] = smallsString[b]
+		b = sec % 100 * 2
+		sec /= 100
+		tmp[5] = smallsString[b+1]
+		tmp[4] = smallsString[b]
+		b = sec % 100 * 2
+		sec /= 100
+		tmp[3] = smallsString[b+1]
+		tmp[2] = smallsString[b]
+		b = sec % 100 * 2
+		tmp[1] = smallsString[b+1]
+		tmp[0] = smallsString[b]
+		// append to e.buf
+		e.buf = append(e.buf, tmp[:]...)
 	default:
 		e.buf = append(e.buf, '"')
 		e.buf = timeNow().AppendFormat(e.buf, l.TimeFormat)
@@ -406,72 +524,14 @@ func (e *Entry) rfc3339(sec int64, nsec int32) {
 	e.buf = append(e.buf, buf...)
 }
 
-func (e *Entry) unix(sec int64, _ int32) {
-	// 1595759807
-	var tmp [10]byte
-	// seconds
-	b := sec % 100 * 2
-	sec /= 100
-	tmp[9] = smallsString[b+1]
-	tmp[8] = smallsString[b]
-	b = sec % 100 * 2
-	sec /= 100
-	tmp[7] = smallsString[b+1]
-	tmp[6] = smallsString[b]
-	b = sec % 100 * 2
-	sec /= 100
-	tmp[5] = smallsString[b+1]
-	tmp[4] = smallsString[b]
-	b = sec % 100 * 2
-	sec /= 100
-	tmp[3] = smallsString[b+1]
-	tmp[2] = smallsString[b]
-	b = sec % 100 * 2
-	tmp[1] = smallsString[b+1]
-	tmp[0] = smallsString[b]
-	// append to e.buf
-	e.buf = append(e.buf, tmp[:]...)
-}
-
-func (e *Entry) unixms(sec int64, nsec int32) {
-	// 1595759807105
-	var tmp [13]byte
-	// milli seconds
-	a := int64(nsec) / 1000000
-	b := a % 100 * 2
-	tmp[12] = smallsString[b+1]
-	tmp[11] = smallsString[b]
-	tmp[10] = byte('0' + a/100)
-	// seconds
-	b = sec % 100 * 2
-	sec /= 100
-	tmp[9] = smallsString[b+1]
-	tmp[8] = smallsString[b]
-	b = sec % 100 * 2
-	sec /= 100
-	tmp[7] = smallsString[b+1]
-	tmp[6] = smallsString[b]
-	b = sec % 100 * 2
-	sec /= 100
-	tmp[5] = smallsString[b+1]
-	tmp[4] = smallsString[b]
-	b = sec % 100 * 2
-	sec /= 100
-	tmp[3] = smallsString[b+1]
-	tmp[2] = smallsString[b]
-	b = sec % 100 * 2
-	tmp[1] = smallsString[b+1]
-	tmp[0] = smallsString[b]
-	// append to e.buf
-	e.buf = append(e.buf, tmp[:]...)
-}
-
 // Time append append t formated as string using time.RFC3339Nano.
 func (e *Entry) Time(key string, t time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.rfc3339(timewall(t))
 	return e
 }
@@ -481,7 +541,9 @@ func (e *Entry) TimeFormat(key string, timefmt string, t time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	switch timefmt {
 	case TimeFormatUnix:
 		e.buf = strconv.AppendInt(e.buf, t.Unix(), 10)
@@ -500,9 +562,9 @@ func (e *Entry) Times(key string, a []time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, t := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -519,9 +581,9 @@ func (e *Entry) TimesFormat(key string, timefmt string, a []time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, t := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -547,7 +609,9 @@ func (e *Entry) Bool(key string, b bool) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.buf = strconv.AppendBool(e.buf, b)
 	return e
 }
@@ -557,8 +621,9 @@ func (e *Entry) Bools(key string, b []bool) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, a := range b {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -569,7 +634,14 @@ func (e *Entry) Bools(key string, b []bool) *Entry {
 	return e
 }
 
-func (e *Entry) dur(d time.Duration) {
+// Dur adds the field key with duration d to the entry.
+func (e *Entry) Dur(key string, d time.Duration) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	if d < 0 {
 		d = -d
 		e.buf = append(e.buf, '-')
@@ -591,15 +663,40 @@ func (e *Entry) dur(d time.Duration) {
 		tmp[0] = '.'
 		e.buf = append(e.buf, tmp[:]...)
 	}
+	return e
 }
 
-// Dur adds the field key with duration d to the entry.
-func (e *Entry) Dur(key string, d time.Duration) *Entry {
+// TimeDiff adds the field key with positive duration between time t and start.
+// If time t is not greater than start, duration will be 0.
+// Duration format follows the same principle as Dur().
+func (e *Entry) TimeDiff(key string, t time.Time, start time.Time) *Entry {
 	if e == nil {
-		return nil
+		return e
 	}
-	e.key(key)
-	e.dur(d)
+	var d time.Duration
+	if t.After(start) {
+		d = t.Sub(start)
+	}
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendInt(e.buf, int64(d/time.Millisecond), 10)
+	if n := (d % time.Millisecond); n != 0 {
+		var tmp [7]byte
+		b := n % 100 * 2
+		n /= 100
+		tmp[6] = smallsString[b+1]
+		tmp[5] = smallsString[b]
+		b = n % 100 * 2
+		n /= 100
+		tmp[4] = smallsString[b+1]
+		tmp[3] = smallsString[b]
+		b = n % 100 * 2
+		tmp[2] = smallsString[b+1]
+		tmp[1] = smallsString[b]
+		tmp[0] = '.'
+		e.buf = append(e.buf, tmp[:]...)
+	}
 	return e
 }
 
@@ -608,13 +705,34 @@ func (e *Entry) Durs(key string, d []time.Duration) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, a := range d {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
 		}
-		e.dur(a)
+		if a < 0 {
+			a = -a
+			e.buf = append(e.buf, '-')
+		}
+		e.buf = strconv.AppendInt(e.buf, int64(a/time.Millisecond), 10)
+		if n := (a % time.Millisecond); n != 0 {
+			var tmp [7]byte
+			b := n % 100 * 2
+			n /= 100
+			tmp[6] = smallsString[b+1]
+			tmp[5] = smallsString[b]
+			b = n % 100 * 2
+			n /= 100
+			tmp[4] = smallsString[b+1]
+			tmp[3] = smallsString[b]
+			b = n % 100 * 2
+			tmp[2] = smallsString[b+1]
+			tmp[1] = smallsString[b]
+			tmp[0] = '.'
+			e.buf = append(e.buf, tmp[:]...)
+		}
 	}
 	e.buf = append(e.buf, ']')
 	return e
@@ -632,12 +750,15 @@ func (e *Entry) AnErr(key string, err error) *Entry {
 	}
 
 	if err == nil {
-		e.key(key)
-		e.buf = append(e.buf, "null"...)
+		e.buf = append(e.buf, ',', '"')
+		e.buf = append(e.buf, key...)
+		e.buf = append(e.buf, "\":null"...)
 		return e
 	}
 
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	if o, ok := err.(ObjectMarshaler); ok {
 		o.MarshalObject(e)
 	} else {
@@ -654,8 +775,9 @@ func (e *Entry) Errs(key string, errs []error) *Entry {
 		return nil
 	}
 
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, err := range errs {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -677,7 +799,9 @@ func (e *Entry) Float64(key string, f float64) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.buf = strconv.AppendFloat(e.buf, f, 'f', -1, 64)
 	return e
 }
@@ -687,8 +811,9 @@ func (e *Entry) Floats64(key string, f []float64) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, a := range f {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -704,8 +829,9 @@ func (e *Entry) Floats32(key string, f []float32) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, a := range f {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -721,7 +847,9 @@ func (e *Entry) Int64(key string, i int64) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.buf = strconv.AppendInt(e.buf, i, 10)
 	return e
 }
@@ -731,7 +859,9 @@ func (e *Entry) Uint(key string, i uint) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.buf = strconv.AppendUint(e.buf, uint64(i), 10)
 	return e
 }
@@ -741,7 +871,9 @@ func (e *Entry) Uint64(key string, i uint64) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.buf = strconv.AppendUint(e.buf, i, 10)
 	return e
 }
@@ -791,8 +923,9 @@ func (e *Entry) Ints64(key string, a []int64) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -808,8 +941,9 @@ func (e *Entry) Ints32(key string, a []int32) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -825,8 +959,9 @@ func (e *Entry) Ints16(key string, a []int16) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -842,8 +977,9 @@ func (e *Entry) Ints8(key string, a []int8) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -859,8 +995,9 @@ func (e *Entry) Ints(key string, a []int) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -876,8 +1013,9 @@ func (e *Entry) Uints64(key string, a []uint64) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -893,8 +1031,9 @@ func (e *Entry) Uints32(key string, a []uint32) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -910,8 +1049,9 @@ func (e *Entry) Uints16(key string, a []uint16) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -927,8 +1067,9 @@ func (e *Entry) Uints8(key string, a []uint8) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -944,8 +1085,9 @@ func (e *Entry) Uints(key string, a []uint) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, n := range a {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -961,7 +1103,9 @@ func (e *Entry) RawJSON(key string, b []byte) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.buf = append(e.buf, b...)
 	return e
 }
@@ -971,7 +1115,9 @@ func (e *Entry) RawJSONStr(key string, s string) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	e.buf = append(e.buf, s...)
 	return e
 }
@@ -981,8 +1127,9 @@ func (e *Entry) Str(key string, val string) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	e.string(val)
 	e.buf = append(e.buf, '"')
 	return e
@@ -993,8 +1140,9 @@ func (e *Entry) StrInt(key string, val int64) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	e.buf = strconv.AppendInt(e.buf, val, 10)
 	e.buf = append(e.buf, '"')
 	return e
@@ -1005,7 +1153,9 @@ func (e *Entry) Stringer(key string, val fmt.Stringer) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	if val != nil {
 		e.buf = append(e.buf, '"')
 		e.string(val.String())
@@ -1021,7 +1171,9 @@ func (e *Entry) GoStringer(key string, val fmt.GoStringer) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	if val != nil {
 		e.buf = append(e.buf, '"')
 		e.string(val.GoString())
@@ -1037,8 +1189,9 @@ func (e *Entry) Strs(key string, vals []string) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '[')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
 	for i, val := range vals {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
@@ -1056,7 +1209,9 @@ func (e *Entry) Byte(key string, val byte) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	switch val {
 	case '"':
 		e.buf = append(e.buf, "\"\\\"\""...)
@@ -1089,8 +1244,9 @@ func (e *Entry) Bytes(key string, val []byte) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	e.bytes(val)
 	e.buf = append(e.buf, '"')
 	return e
@@ -1101,7 +1257,9 @@ func (e *Entry) BytesOrNil(key string, val []byte) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	if val == nil {
 		e.buf = append(e.buf, "null"...)
 	} else {
@@ -1119,8 +1277,9 @@ func (e *Entry) Hex(key string, val []byte) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	for _, v := range val {
 		e.buf = append(e.buf, hex[v>>4], hex[v&0x0f])
 	}
@@ -1133,9 +1292,9 @@ func (e *Entry) Xid(key string, xid [12]byte) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	e.buf = append(e.buf, (XID(xid)).String()...)
 	e.buf = append(e.buf, '"')
 
@@ -1147,8 +1306,9 @@ func (e *Entry) IPAddr(key string, ip net.IP) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	if ip4 := ip.To4(); ip4 != nil {
 		e.buf = strconv.AppendInt(e.buf, int64(ip4[0]), 10)
 		e.buf = append(e.buf, '.')
@@ -1169,8 +1329,9 @@ func (e *Entry) IPPrefix(key string, pfx net.IPNet) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	e.buf = append(e.buf, pfx.String()...)
 	e.buf = append(e.buf, '"')
 	return e
@@ -1181,8 +1342,9 @@ func (e *Entry) MACAddr(key string, ha net.HardwareAddr) *Entry {
 	if e == nil {
 		return nil
 	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
 	for i, c := range ha {
 		if i > 0 {
 			e.buf = append(e.buf, ':')
@@ -1190,24 +1352,6 @@ func (e *Entry) MACAddr(key string, ha net.HardwareAddr) *Entry {
 		e.buf = append(e.buf, hex[c>>4])
 		e.buf = append(e.buf, hex[c&0xF])
 	}
-	e.buf = append(e.buf, '"')
-	return e
-}
-
-// TimeDiff adds the field key with positive duration between time t and start.
-// If time t is not greater than start, duration will be 0.
-// Duration format follows the same principle as Dur().
-func (e *Entry) TimeDiff(key string, t time.Time, start time.Time) *Entry {
-	if e == nil {
-		return e
-	}
-	var d time.Duration
-	if t.After(start) {
-		d = t.Sub(start)
-	}
-	e.key(key)
-	e.buf = append(e.buf, '"')
-	e.buf = append(e.buf, d.String()...)
 	e.buf = append(e.buf, '"')
 	return e
 }
@@ -1287,29 +1431,20 @@ var bbpool = sync.Pool{
 	},
 }
 
-func bbget() *bb {
-	b := bbpool.Get().(*bb)
-	b.B = b.B[:0]
-	return b
-}
-
-func bbput(b *bb) {
-	if cap(b.B) <= bbcap {
-		bbpool.Put(b)
-	}
-}
-
 // Msgf sends the entry with formatted msg added as the message field if not empty.
 func (e *Entry) Msgf(format string, v ...interface{}) {
 	if e == nil {
 		return
 	}
-	b := bbget()
+	b := bbpool.Get().(*bb)
+	b.B = b.B[:0]
 	e.buf = append(e.buf, ",\"message\":\""...)
 	fmt.Fprintf(b, format, v...)
 	e.bytes(b.B)
 	e.buf = append(e.buf, '"')
-	bbput(b)
+	if cap(b.B) <= bbcap {
+		bbpool.Put(b)
+	}
 	e.Msg("")
 }
 
@@ -1318,19 +1453,16 @@ func (e *Entry) Msgs(args ...interface{}) {
 	if e == nil {
 		return
 	}
-	b := bbget()
+	b := bbpool.Get().(*bb)
+	b.B = b.B[:0]
 	e.buf = append(e.buf, ",\"message\":\""...)
 	fmt.Fprint(b, args...)
 	e.bytes(b.B)
 	e.buf = append(e.buf, '"')
-	bbput(b)
+	if cap(b.B) <= bbcap {
+		bbpool.Put(b)
+	}
 	e.Msg("")
-}
-
-func (e *Entry) key(key string) {
-	e.buf = append(e.buf, ',', '"')
-	e.buf = append(e.buf, key...)
-	e.buf = append(e.buf, '"', ':')
 }
 
 func (e *Entry) caller(_ uintptr, file string, line int, _ bool) {
@@ -1357,7 +1489,7 @@ var escapes = [256]bool{
 	'\t': true,
 }
 
-func (e *Entry) escape(b []byte) {
+func (e *Entry) escapeb(b []byte) {
 	n := len(b)
 	j := 0
 	if n > 0 {
@@ -1411,15 +1543,64 @@ func (e *Entry) escape(b []byte) {
 	e.buf = append(e.buf, b[j:]...)
 }
 
+func (e *Entry) escapes(s string) {
+	n := len(s)
+	j := 0
+	if n > 0 {
+		// Hint the compiler to remove bounds checks in the loop below.
+		_ = s[n-1]
+	}
+	for i := 0; i < n; i++ {
+		switch s[i] {
+		case '"':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', '"')
+			j = i + 1
+		case '\\':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', '\\')
+			j = i + 1
+		case '\n':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 'n')
+			j = i + 1
+		case '\r':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 'r')
+			j = i + 1
+		case '\t':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 't')
+			j = i + 1
+		case '\f':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 'u', '0', '0', '0', 'c')
+			j = i + 1
+		case '\b':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 'u', '0', '0', '0', '8')
+			j = i + 1
+		case '<':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 'u', '0', '0', '3', 'c')
+			j = i + 1
+		case '\'':
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 'u', '0', '0', '2', '7')
+			j = i + 1
+		case 0:
+			e.buf = append(e.buf, s[j:i]...)
+			e.buf = append(e.buf, '\\', 'u', '0', '0', '0', '0')
+			j = i + 1
+		}
+	}
+	e.buf = append(e.buf, s[j:]...)
+}
+
 func (e *Entry) string(s string) {
 	for _, c := range []byte(s) {
 		if escapes[c] {
-			sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
-			// nolint
-			b := *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-				Data: sh.Data, Len: sh.Len, Cap: sh.Len,
-			}))
-			e.escape(b)
+			e.escapes(s)
 			return
 		}
 	}
@@ -1429,7 +1610,7 @@ func (e *Entry) string(s string) {
 func (e *Entry) bytes(b []byte) {
 	for _, c := range b {
 		if escapes[c] {
-			e.escape(b)
+			e.escapeb(b)
 			return
 		}
 	}
@@ -1446,20 +1627,25 @@ func (e *Entry) Interface(key string, i interface{}) *Entry {
 		return e.Object(key, o)
 	}
 
-	e.key(key)
-	e.buf = append(e.buf, '"')
-	b := bbget()
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
+	b := bbpool.Get().(*bb)
+	b.B = b.B[:0]
 	enc := json.NewEncoder(b)
 	enc.SetEscapeHTML(false)
 	err := enc.Encode(i)
 	if err != nil {
-		e.string("marshaling error: " + err.Error())
-		e.buf = append(e.buf, '"')
+		b.B = b.B[:0]
+		fmt.Fprintf(b, "marshaling error: %+v", err)
 	} else {
-		e.buf = append(e.buf, b.B...)
-		e.buf[len(e.buf)-1] = '"'
+		b.B = b.B[:len(b.B)-1]
 	}
-	bbput(b)
+	e.bytes(b.B)
+	e.buf = append(e.buf, '"')
+	if cap(b.B) <= bbcap {
+		bbpool.Put(b)
+	}
 
 	return e
 }
@@ -1470,7 +1656,9 @@ func (e *Entry) Object(key string, obj ObjectMarshaler) *Entry {
 		return nil
 	}
 
-	e.key(key)
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
 	if obj == nil {
 		e.buf = append(e.buf, "null"...)
 		return e
@@ -1512,13 +1700,17 @@ func (e *Entry) KeysAndValues(keysAndValues ...interface{}) *Entry {
 			continue
 		}
 		if v == nil {
-			e.key(key)
+			e.buf = append(e.buf, ',', '"')
+			e.buf = append(e.buf, key...)
+			e.buf = append(e.buf, '"', ':')
 			e.buf = append(e.buf, "null"...)
 			continue
 		}
 		switch v := v.(type) {
 		case ObjectMarshaler:
-			e.key(key)
+			e.buf = append(e.buf, ',', '"')
+			e.buf = append(e.buf, key...)
+			e.buf = append(e.buf, '"', ':')
 			v.MarshalObject(e)
 		case Context:
 			e.Dict(key, v)
@@ -1592,13 +1784,16 @@ func (e *Entry) Fields(fields map[string]interface{}) *Entry {
 	}
 	for k, v := range fields {
 		if v == nil {
-			e.key(k)
-			e.buf = append(e.buf, "null"...)
+			e.buf = append(e.buf, ',', '"')
+			e.buf = append(e.buf, k...)
+			e.buf = append(e.buf, "\":null"...)
 			continue
 		}
 		switch v := v.(type) {
 		case ObjectMarshaler:
-			e.key(k)
+			e.buf = append(e.buf, ',', '"')
+			e.buf = append(e.buf, k...)
+			e.buf = append(e.buf, '"', ':')
 			v.MarshalObject(e)
 		case Context:
 			e.Dict(k, v)
