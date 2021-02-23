@@ -3,7 +3,6 @@ package log
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/goccy/go-reflect"
 	"io"
 	"net"
 	"os"
