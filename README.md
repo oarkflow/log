@@ -12,8 +12,8 @@
 * Simple and Clean Interface
 * Consistent Writer
     - `IOWriter`, *io.Writer wrapper*
-    - `FileWriter`, *rotating & effective*
     - `ConsoleWriter`, *colorful & formatting*
+    - `FileWriter`, *rotating & effective*
     - `MultiWriter`, *multiple level dispatch*
     - `SyslogWriter`, *syslog server logging*
     - `JournalWriter`, *linux systemd logging*
@@ -65,8 +65,32 @@ type Logger struct {
 }
 ```
 
-### FileWriter & ConsoleWriter
+### ConsoleWriter & FileWriter
 ```go
+// ConsoleWriter parses the JSON input and writes it in a colorized, human-friendly format to Writer.
+// IMPORTANT: Don't use ConsoleWriter on critical path of a high concurrency and low latency application.
+//
+// Default output format:
+//     {Time} {Level} {Goid} {Caller} > {Message} {Key}={Value} {Key}={Value}
+type ConsoleWriter struct {
+	// ColorOutput determines if used colorized output.
+	ColorOutput bool
+
+	// QuoteString determines if quoting string values.
+	QuoteString bool
+
+	// EndWithMessage determines if output message in the end of line.
+	EndWithMessage bool
+
+	// Writer is the output destination. using os.Stderr if empty.
+	Writer io.Writer
+
+	// Formatter specifies an optional text formatter for creating a customized output,
+	// If it is set, ColorOutput, QuoteString and EndWithMessage will be ignored.
+	Formatter func(w io.Writer, args *FormatterArgs) (n int, err error)
+}
+
+
 // FileWriter is an Writer that writes to the specified filename.
 type FileWriter struct {
 	// Filename is the file to write logs to.  Backup log files will be retained
@@ -104,29 +128,6 @@ type FileWriter struct {
 	// Cleaner specifies an optional cleanup function of log backups after rotation,
 	// if not set, the default behavior is to delete more than MaxBackups log files.
 	Cleaner func(filename string, maxBackups int, matches []os.FileInfo)
-}
-
-// ConsoleWriter parses the JSON input and writes it in a colorized, human-friendly format to Writer.
-// IMPORTANT: Don't use ConsoleWriter on critical path of a high concurrency and low latency application.
-//
-// Default output format:
-//     {Time} {Level} {Goid} {Caller} > {Message} {Key}={Value} {Key}={Value}
-type ConsoleWriter struct {
-	// ColorOutput determines if used colorized output.
-	ColorOutput bool
-
-	// QuoteString determines if quoting string values.
-	QuoteString bool
-
-	// EndWithMessage determines if output message in the end of line.
-	EndWithMessage bool
-
-	// Writer is the output destination. using os.Stderr if empty.
-	Writer io.Writer
-
-	// Formatter specifies an optional text formatter for creating a customized output,
-	// If it is set, ColorOutput, QuoteString and EndWithMessage will be ignored.
-	Formatter func(w io.Writer, args *FormatterArgs) (n int, err error)
 }
 ```
 > Note: FileWriter implements log.Writer and io.Writer interfaces both, it is a drop-in replacement of [lumberjack][lumberjack].
@@ -177,6 +178,58 @@ func main() {
 }
 
 // Output: {"date":"2019-07-04","level":"info","caller":"prog.go:16","foo":"bar","message":"hello world"}
+```
+
+### Pretty Console Writer
+
+To log a human-friendly, colorized output, use `ConsoleWriter`. [![playground][play-pretty-img]][play-pretty]
+
+```go
+if log.IsTerminal(os.Stderr.Fd()) {
+	log.DefaultLogger = log.Logger{
+		TimeFormat: "15:04:05",
+		Caller:     1,
+		Writer: &log.ConsoleWriter{
+			ColorOutput:    true,
+			QuoteString:    true,
+			EndWithMessage: true,
+		},
+	}
+}
+
+log.Debug().Int("everything", 42).Str("foo", "bar").Msg("hello world")
+log.Info().Int("everything", 42).Str("foo", "bar").Msg("hello world")
+log.Warn().Int("everything", 42).Str("foo", "bar").Msg("hello world")
+log.Error().Err(errors.New("an error")).Msg("hello world")
+```
+![Pretty logging][pretty-img]
+> Note: pretty logging also works on windows console
+
+### Formatting Console Writer
+
+To log with user-defined format(e.g. glog), using `ConsoleWriter.Formatter`. [![playground][play-formatting-img]][play-formatting]
+
+```go
+log.DefaultLogger = log.Logger{
+	Level:      log.InfoLevel,
+	Caller:     1,
+	TimeFormat: "0102 15:04:05.999999",
+	Writer: &log.ConsoleWriter{
+		Formatter: func (w io.Writer, a *log.FormatterArgs) (int, error) {
+			return fmt.Fprintf(w, "%c%s %s %s] %s\n%s", strings.ToUpper(a.Level)[0],
+				a.Time, a.Goid, a.Caller, a.Message, a.Stack)
+		},
+	},
+}
+
+log.Info().Msgf("hello glog %s", "Info")
+log.Warn().Msgf("hello glog %s", "Warn")
+log.Error().Msgf("hello glog %s", "Error")
+
+// Output:
+// I0725 09:59:57.503246 19 console_test.go:183] hello glog Info
+// W0725 09:59:57.504247 19 console_test.go:184] hello glog Warn
+// E0725 09:59:57.504247 19 console_test.go:185] hello glog Error
 ```
 
 ### Rotating File Writer
@@ -261,58 +314,6 @@ func main() {
 		logger.Info().Msg("hello world")
 	}
 }
-```
-
-### Pretty Console Writer
-
-To log a human-friendly, colorized output, use `ConsoleWriter`. [![playground][play-pretty-img]][play-pretty]
-
-```go
-if log.IsTerminal(os.Stderr.Fd()) {
-	log.DefaultLogger = log.Logger{
-		TimeFormat: "15:04:05",
-		Caller:     1,
-		Writer: &log.ConsoleWriter{
-			ColorOutput:    true,
-			QuoteString:    true,
-			EndWithMessage: true,
-		},
-	}
-}
-
-log.Debug().Int("everything", 42).Str("foo", "bar").Msg("hello world")
-log.Info().Int("everything", 42).Str("foo", "bar").Msg("hello world")
-log.Warn().Int("everything", 42).Str("foo", "bar").Msg("hello world")
-log.Error().Err(errors.New("an error")).Msg("hello world")
-```
-![Pretty logging][pretty-img]
-> Note: pretty logging also works on windows console
-
-### Formatting Console Writer
-
-To log with user-defined format(e.g. glog), using `ConsoleWriter.Formatter`. [![playground][play-formatting-img]][play-formatting]
-
-```go
-log.DefaultLogger = log.Logger{
-	Level:      log.InfoLevel,
-	Caller:     1,
-	TimeFormat: "0102 15:04:05.999999",
-	Writer: &log.ConsoleWriter{
-		Formatter: func (w io.Writer, a *log.FormatterArgs) (int, error) {
-			return fmt.Fprintf(w, "%c%s %s %s] %s\n%s", strings.ToUpper(a.Level)[0],
-				a.Time, a.Goid, a.Caller, a.Message, a.Stack)
-		},
-	},
-}
-
-log.Info().Msgf("hello glog %s", "Info")
-log.Warn().Msgf("hello glog %s", "Warn")
-log.Error().Msgf("hello glog %s", "Error")
-
-// Output:
-// I0725 09:59:57.503246 19 console_test.go:183] hello glog Info
-// W0725 09:59:57.504247 19 console_test.go:184] hello glog Warn
-// E0725 09:59:57.504247 19 console_test.go:185] hello glog Error
 ```
 
 ### Multiple Dispatching Writer
@@ -531,7 +532,7 @@ logger.Info().Context(ctx).Int("no2", 2).Msg("second")
 
 ### High Performance
 
-The most common benchmarks(disable/normal/caller/printf/interface) with zap/zerolog, which runs on [github actions][benchmark]:
+The most common benchmarks(disable/normal/interface/printf/caller) with zap/zerolog, which runs on [github actions][benchmark]:
 
 ```go
 // go test -v -cpu=4 -run=none -bench=. -benchtime=10s -benchmem log_test.go
@@ -572,15 +573,14 @@ func BenchmarkNormalZap(b *testing.B) {
 	}
 }
 
-func BenchmarkCallerZap(b *testing.B) {
+func BenchmarkInterfaceZap(b *testing.B) {
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(ioutil.Discard),
-		zapcore.InfoLevel),
-		zap.AddCaller(),
-	)
+		zapcore.InfoLevel,
+	)).Sugar()
 	for i := 0; i < b.N; i++ {
-		logger.Info(msg, zap.String("rate", "15"), zap.Int("low", 16), zap.Float32("high", 123.2))
+		logger.Infow(msg, "object", &obj)
 	}
 }
 
@@ -595,14 +595,15 @@ func BenchmarkPrintfZap(b *testing.B) {
 	}
 }
 
-func BenchmarkInterfaceZap(b *testing.B) {
+func BenchmarkCallerZap(b *testing.B) {
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(ioutil.Discard),
-		zapcore.InfoLevel,
-	)).Sugar()
+		zapcore.InfoLevel),
+		zap.AddCaller(),
+	)
 	for i := 0; i < b.N; i++ {
-		logger.Infow(msg, "object", &obj)
+		logger.Info(msg, zap.String("rate", "15"), zap.Int("low", 16), zap.Float32("high", 123.2))
 	}
 }
 
@@ -621,10 +622,10 @@ func BenchmarkNormalZeroLog(b *testing.B) {
 	}
 }
 
-func BenchmarkCallerZeroLog(b *testing.B) {
-	logger := zerolog.New(ioutil.Discard).With().Caller().Timestamp().Logger()
+func BenchmarkInterfaceZeroLog(b *testing.B) {
+	logger := zerolog.New(ioutil.Discard).With().Timestamp().Logger()
 	for i := 0; i < b.N; i++ {
-		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
+		logger.Info().Interface("object", &obj).Msg(msg)
 	}
 }
 
@@ -635,10 +636,10 @@ func BenchmarkPrintfZeroLog(b *testing.B) {
 	}
 }
 
-func BenchmarkInterfaceZeroLog(b *testing.B) {
-	logger := zerolog.New(ioutil.Discard).With().Timestamp().Logger()
+func BenchmarkCallerZeroLog(b *testing.B) {
+	logger := zerolog.New(ioutil.Discard).With().Caller().Timestamp().Logger()
 	for i := 0; i < b.N; i++ {
-		logger.Info().Interface("object", &obj).Msg(msg)
+		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
 	}
 }
 
@@ -656,10 +657,10 @@ func BenchmarkNormalPhusLog(b *testing.B) {
 	}
 }
 
-func BenchmarkCallerPhusLog(b *testing.B) {
-	logger := log.Logger{Caller: 1, Writer: log.IOWriter{ioutil.Discard}}
+func BenchmarkInterfacePhusLog(b *testing.B) {
+	logger := log.Logger{Writer: log.IOWriter{ioutil.Discard}}
 	for i := 0; i < b.N; i++ {
-		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
+		logger.Info().Interface("object", &obj).Msg(msg)
 	}
 }
 
@@ -670,10 +671,10 @@ func BenchmarkPrintfPhusLog(b *testing.B) {
 	}
 }
 
-func BenchmarkInterfacePhusLog(b *testing.B) {
-	logger := log.Logger{Writer: log.IOWriter{ioutil.Discard}}
+func BenchmarkCallerPhusLog(b *testing.B) {
+	logger := log.Logger{Caller: 1, Writer: log.IOWriter{ioutil.Discard}}
 	for i := 0; i < b.N; i++ {
-		logger.Info().Interface("object", &obj).Msg(msg)
+		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
 	}
 }
 ```
@@ -681,19 +682,21 @@ A Performance result as below, for daily benchmark results see [github actions][
 ```
 BenchmarkDisableZap-4         	84149790	       138 ns/op	     192 B/op	       1 allocs/op
 BenchmarkNormalZap-4          	 8281590	      1459 ns/op	     192 B/op	       1 allocs/op
-BenchmarkCallerZap-4          	 3661080	      3280 ns/op	     440 B/op	       4 allocs/op
-BenchmarkPrintfZap-4          	 6664330	      1846 ns/op	      96 B/op	       2 allocs/op
 BenchmarkInterfaceZap-4       	 6159080	      1924 ns/op	     208 B/op	       2 allocs/op
+BenchmarkPrintfZap-4          	 6664330	      1846 ns/op	      96 B/op	       2 allocs/op
+BenchmarkCallerZap-4          	 3661080	      3280 ns/op	     440 B/op	       4 allocs/op
+
 BenchmarkDisableZeroLog-4     	788723734	        14.7 ns/op	       0 B/op	       0 allocs/op
 BenchmarkNormalZeroLog-4      	15282351	       768 ns/op	       0 B/op	       0 allocs/op
-BenchmarkCallerZeroLog-4      	 3586092	      3563 ns/op	     264 B/op	       3 allocs/op
-BenchmarkPrintfZeroLog-4      	 8954383	      1360 ns/op	      96 B/op	       2 allocs/op
 BenchmarkInterfaceZeroLog-4   	10396608	      1163 ns/op	      48 B/op	       1 allocs/op
+BenchmarkPrintfZeroLog-4      	 8954383	      1360 ns/op	      96 B/op	       2 allocs/op
+BenchmarkCallerZeroLog-4      	 3586092	      3563 ns/op	     264 B/op	       3 allocs/op
+
 BenchmarkDisablePhusLog-4     	932239788	        13.1 ns/op	       0 B/op	       0 allocs/op
 BenchmarkNormalPhusLog-4      	25032302	       449 ns/op	       0 B/op	       0 allocs/op
-BenchmarkCallerPhusLog-4      	 8207911	      1434 ns/op	     216 B/op	       2 allocs/op
-BenchmarkPrintfPhusLog-4      	13794639	       851 ns/op	      16 B/op	       1 allocs/op
 BenchmarkInterfacePhusLog-4   	14000850	       837 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPrintfPhusLog-4      	13794639	       851 ns/op	      16 B/op	       1 allocs/op
+BenchmarkCallerPhusLog-4      	 8207911	      1434 ns/op	     216 B/op	       2 allocs/op
 ```
 This library uses the following special techniques to achieve better performance,
 1. handwriting time formatting
