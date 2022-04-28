@@ -34,7 +34,7 @@ func TestLoggerInfo(t *testing.T) {
 		Level: ParseLevel("debug"),
 	}
 	logger.Info().
-		Caller(1).
+		Caller(1, false).
 		Bool("bool", true).
 		Bools("bools", []bool{false}).
 		Bools("bools", []bool{true, false}).
@@ -70,6 +70,7 @@ func TestLoggerInfo(t *testing.T) {
 		Ints16("ints16", []int16{123, 123}).
 		Ints8("ints8", []int8{123, 123}).
 		Ints("ints", []int{123, 123}).
+		Func(func(e *Entry) { e.Str("func", "func_output") }).
 		RawJSON("raw_json", []byte("{\"a\":1,\"b\":2}")).
 		RawJSONStr("raw_json", "{\"c\":1,\"d\":2}").
 		Hex("hex", []byte("\"<>?'")).
@@ -84,7 +85,7 @@ func TestLoggerInfo(t *testing.T) {
 		Stringer("stringer", ipv4Addr).
 		GoStringer("gostringer", nil).
 		GoStringer("gostringer", binary.BigEndian).
-		Time("now_1", timeNow()).
+		Time("now_1", timeNow().In(time.FixedZone("UTC-7", -7*60*60))).
 		Times("now_2", []time.Time{timeNow(), timeNow()}).
 		TimeFormat("now_3", time.RFC3339, timeNow()).
 		TimeFormat("now_3_1", TimeFormatUnix, timeNow()).
@@ -108,7 +109,7 @@ func TestLoggerInfo(t *testing.T) {
 
 func TestLoggerNil(t *testing.T) {
 	e := Info()
-	e.Caller(1).Str("foo", "bar").Int("num", 42).Msgf("this is a nil entry test")
+	e.Caller(1, false).Str("foo", "bar").Int("num", 42).Msgf("this is a nil entry test")
 
 	ipv4Addr, ipv4Net, err := net.ParseCIDR("192.0.2.1/24")
 	if err != nil {
@@ -119,7 +120,7 @@ func TestLoggerNil(t *testing.T) {
 		Level: ParseLevel("info"),
 	}
 	logger.Debug().
-		Caller(1).
+		Caller(1, false).
 		Bool("bool", true).
 		Bools("bools", []bool{true, false}).
 		Dur("1_hour", time.Hour).
@@ -152,6 +153,7 @@ func TestLoggerNil(t *testing.T) {
 		Ints16("ints16", []int16{123, 123}).
 		Ints8("ints8", []int8{123, 123}).
 		Ints("ints", []int{123, 123}).
+		Func(func(e *Entry) { e.Str("func", "func_output") }).
 		RawJSON("raw_json", []byte("{\"a\":1,\"b\":2}")).
 		RawJSONStr("raw_json", "{\"c\":1,\"d\":2}").
 		Hex("hex", []byte("\"<>?'")).
@@ -196,7 +198,7 @@ func TestLoggerInterface(t *testing.T) {
 	cyclicStruct.Value = &cyclicStruct
 
 	logger.Info().
-		Caller(1).
+		Caller(1, false).
 		Interface("a_cyclic_struct", cyclicStruct).
 		Msgf("this is a cyclic struct test")
 }
@@ -216,6 +218,7 @@ type nullMarshalObject struct {
 }
 
 func (o *nullMarshalObject) MarshalObject(e *Entry) {
+	e.Int("i", o.I).Str("n", o.N)
 }
 
 func TestLoggerObject(t *testing.T) {
@@ -230,6 +233,11 @@ func TestLoggerObject(t *testing.T) {
 
 	logger.Info().Object("null_object", &nullMarshalObject{3, "xxx"}).Msg("this is a empty_object test")
 	logger.Info().EmbedObject(&nullMarshalObject{3, "xxx"}).Msg("this is a empty_object test")
+
+	var nilObjct *nullMarshalObject
+	var nilIface ObjectMarshaler = nilObjct
+	logger.Info().Object("null_object_2", nilIface).Msg("this is a null_object_2 test")
+	logger.Info().EmbedObject(nilIface).Msg("this is a null_object_2 test")
 }
 
 func TestLoggerLog(t *testing.T) {
@@ -362,6 +370,21 @@ func TestLoggerContext(t *testing.T) {
 	logger.Debug().Context(ctx).Int("no0", 0).Msg("this is zero context log entry")
 	logger.Info().Context(ctx).Int("no1", 1).Msg("this is first context log entry")
 	logger.Info().Context(ctx).Int("no2", 2).Msg("this is second context log entry")
+}
+
+func TestLoggerContext2(t *testing.T) {
+	notTest = false
+
+	DefaultLogger.Context = NewContext(nil).Str("ctx", "some_ctx").Int("n", 42).Value()
+
+	Trace().Str("foo", "bar").Msg("hello from Trace")
+	Debug().Str("foo", "bar").Msg("hello from Debug")
+	Info().Str("foo", "bar").Msg("hello from Info")
+	Warn().Str("foo", "bar").Msg("hello from Warn")
+	Error().Str("foo", "bar").Msg("hello from Error")
+	Fatal().Str("foo", "bar").Msg("hello from Fatal")
+	Panic().Str("foo", "bar").Msg("hello from Panic")
+	Printf("hello from %s", "Printf")
 }
 
 func TestLoggerContextDict(t *testing.T) {
