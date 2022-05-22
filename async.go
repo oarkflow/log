@@ -1,10 +1,11 @@
 package log
 
 import (
+	"io"
 	"sync"
 )
 
-// AsyncWriter is an Writer that writes asynchronously.
+// AsyncWriter is a Writer that writes asynchronously.
 type AsyncWriter struct {
 	// ChannelSize is the size of the data channel, the default size is 1.
 	ChannelSize uint
@@ -21,6 +22,11 @@ type AsyncWriter struct {
 func (w *AsyncWriter) Close() (err error) {
 	w.ch <- nil
 	err = <-w.chClose
+	if closer, ok := w.Writer.(io.Closer); ok {
+		if err1 := closer.Close(); err1 != nil {
+			err = err1
+		}
+	}
 	return
 }
 

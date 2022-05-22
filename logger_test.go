@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,13 +15,18 @@ import (
 func TestLoggerDefault(t *testing.T) {
 	notTest = false
 
+	DefaultLogger.Caller = 1
 	Trace().Str("foo", "bar").Msg("hello from Trace")
 	Debug().Str("foo", "bar").Msg("hello from Debug")
 	Info().Str("foo", "bar").Msg("hello from Info")
+
+	DefaultLogger.Caller = -1
 	Warn().Str("foo", "bar").Msg("hello from Warn")
 	Error().Str("foo", "bar").Msg("hello from Error")
 	Fatal().Str("foo", "bar").Msg("hello from Fatal")
 	Panic().Str("foo", "bar").Msg("hello from Panic")
+
+	DefaultLogger.Caller = 0
 	Printf("hello from %s", "Printf")
 }
 
@@ -34,7 +40,7 @@ func TestLoggerInfo(t *testing.T) {
 		Level: ParseLevel("debug"),
 	}
 	logger.Info().
-		Caller(1, false).
+		Caller(-1).
 		Bool("bool", true).
 		Bools("bools", []bool{false}).
 		Bools("bools", []bool{true, false}).
@@ -109,7 +115,7 @@ func TestLoggerInfo(t *testing.T) {
 
 func TestLoggerNil(t *testing.T) {
 	e := Info()
-	e.Caller(1, false).Str("foo", "bar").Int("num", 42).Msgf("this is a nil entry test")
+	e.Caller(1).Str("foo", "bar").Int("num", 42).Msgf("this is a nil entry test")
 
 	ipv4Addr, ipv4Net, err := net.ParseCIDR("192.0.2.1/24")
 	if err != nil {
@@ -120,7 +126,7 @@ func TestLoggerNil(t *testing.T) {
 		Level: ParseLevel("info"),
 	}
 	logger.Debug().
-		Caller(1, false).
+		Caller(1).
 		Bool("bool", true).
 		Bools("bools", []bool{true, false}).
 		Dur("1_hour", time.Hour).
@@ -198,7 +204,7 @@ func TestLoggerInterface(t *testing.T) {
 	cyclicStruct.Value = &cyclicStruct
 
 	logger.Info().
-		Caller(1, false).
+		Caller(-1).
 		Interface("a_cyclic_struct", cyclicStruct).
 		Msgf("this is a cyclic struct test")
 }
@@ -496,6 +502,20 @@ func TestLoggerErrorStack(t *testing.T) {
 	logger.Info().Err(errno(1)).Msg("log errno(1) here")
 	logger.Info().Err(errno(2)).Msg("log errno(2) here")
 	logger.Info().Err(errno(3)).Msg("log errno(3) here")
+}
+
+func TestFixMissingErrEntry(t *testing.T) {
+	var b bytes.Buffer
+	logger := Logger{Level: TraceLevel, Writer: &IOWriter{Writer: &b}}
+	logger.Err(errors.New("test error")).Msg("log error here")
+	if !strings.Contains(b.String(), `"error":"test error"`) {
+		t.Fatal("logger.Err need an error entry if err != nil")
+	}
+	b.Reset()
+	logger.Err(nil).Msg("log info here")
+	if !strings.Contains(b.String(), `"level":"info"`) {
+		t.Fatal("logger.Err need info level if err == nil")
+	}
 }
 
 func BenchmarkLogger(b *testing.B) {

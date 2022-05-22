@@ -45,6 +45,21 @@ func (w IOWriter) WriteEntry(e *Entry) (n int, err error) {
 	return w.Writer.Write(e.buf)
 }
 
+// IOWriteCloser wraps an io.IOWriteCloser to Writer.
+type IOWriteCloser struct {
+	io.WriteCloser
+}
+
+// WriteEntry implements Writer.
+func (w IOWriteCloser) WriteEntry(e *Entry) (n int, err error) {
+	return w.WriteCloser.Write(e.buf)
+}
+
+// Close implements Writer.
+func (w IOWriteCloser) Close() (err error) {
+	return w.WriteCloser.Close()
+}
+
 // ObjectMarshaler provides a strongly-typed and encoding-agnostic interface
 // to be implemented by types used with Entry's Object methods.
 type ObjectMarshaler interface {
@@ -57,10 +72,8 @@ type Logger struct {
 	Level Level
 
 	// Caller determines if adds the file:line of the "caller" key.
+	// If Caller is negative, adds the full /path/to/file:line of the "caller" key.
 	Caller int
-
-	// FullpathCaller determines whether to use full file path like /a/b/c/d.go:line as "caller" or not.
-	FullpathCaller bool
 
 	// TimeField defines the time filed name in output.  It uses "time" in if empty.
 	TimeField string
@@ -90,9 +103,12 @@ func Trace() (e *Entry) {
 		return nil
 	}
 	e = DefaultLogger.header(TraceLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -103,9 +119,12 @@ func Debug() (e *Entry) {
 		return nil
 	}
 	e = DefaultLogger.header(DebugLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -116,9 +135,12 @@ func Info() (e *Entry) {
 		return nil
 	}
 	e = DefaultLogger.header(InfoLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -129,9 +151,12 @@ func Warn() (e *Entry) {
 		return nil
 	}
 	e = DefaultLogger.header(WarnLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -142,9 +167,12 @@ func Error() (e *Entry) {
 		return nil
 	}
 	e = DefaultLogger.header(ErrorLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -155,9 +183,12 @@ func Fatal() (e *Entry) {
 		return nil
 	}
 	e = DefaultLogger.header(FatalLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -168,9 +199,12 @@ func Panic() (e *Entry) {
 		return nil
 	}
 	e = DefaultLogger.header(PanicLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -178,9 +212,12 @@ func Panic() (e *Entry) {
 // Printf sends a log entry without extra field. Arguments are handled in the manner of fmt.Printf.
 func Printf(format string, v ...interface{}) {
 	e := DefaultLogger.header(noLevel)
-	if DefaultLogger.Caller > 0 {
-		_, file, line, _ := runtime.Caller(DefaultLogger.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := DefaultLogger.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	e.Msgf(format, v...)
 }
@@ -191,9 +228,12 @@ func (l *Logger) Trace() (e *Entry) {
 		return nil
 	}
 	e = l.header(TraceLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -204,9 +244,12 @@ func (l *Logger) Debug() (e *Entry) {
 		return nil
 	}
 	e = l.header(DebugLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -217,9 +260,12 @@ func (l *Logger) Info() (e *Entry) {
 		return nil
 	}
 	e = l.header(InfoLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -230,9 +276,12 @@ func (l *Logger) Warn() (e *Entry) {
 		return nil
 	}
 	e = l.header(WarnLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -243,9 +292,12 @@ func (l *Logger) Error() (e *Entry) {
 		return nil
 	}
 	e = l.header(ErrorLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -256,9 +308,12 @@ func (l *Logger) Fatal() (e *Entry) {
 		return nil
 	}
 	e = l.header(FatalLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -269,9 +324,12 @@ func (l *Logger) Panic() (e *Entry) {
 		return nil
 	}
 	e = l.header(PanicLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -279,9 +337,12 @@ func (l *Logger) Panic() (e *Entry) {
 // Log starts a new message with no level.
 func (l *Logger) Log() (e *Entry) {
 	e = l.header(noLevel)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -292,9 +353,12 @@ func (l *Logger) WithLevel(level Level) (e *Entry) {
 		return nil
 	}
 	e = l.header(level)
-	if l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -309,9 +373,18 @@ func (l *Logger) Err(err error) (e *Entry) {
 		return nil
 	}
 	e = l.header(level)
-	if e != nil && l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if e == nil {
+		return nil
+	}
+	if level == ErrorLevel {
+		e = e.Err(err)
+	}
+	if caller, full := l.Caller, false; caller != 0 {
+		if caller < 0 {
+			caller, full = -caller, true
+		}
+		var rpc [1]uintptr
+		e.caller(callers(caller, rpc[:]), rpc[:], full)
 	}
 	return
 }
@@ -324,9 +397,14 @@ func (l *Logger) SetLevel(level Level) {
 // Printf sends a log entry without extra field. Arguments are handled in the manner of fmt.Printf.
 func (l *Logger) Printf(format string, v ...interface{}) {
 	e := l.header(noLevel)
-	if e != nil && l.Caller > 0 {
-		_, file, line, _ := runtime.Caller(l.Caller)
-		e.caller(file, line, DefaultLogger.FullpathCaller)
+	if e != nil {
+		if caller, full := l.Caller, false; caller != 0 {
+			if caller < 0 {
+				caller, full = -caller, true
+			}
+			var rpc [1]uintptr
+			e.caller(callers(caller, rpc[:]), rpc[:], full)
+		}
 	}
 	e.Msgf(format, v...)
 }
@@ -1371,10 +1449,15 @@ func (e *Entry) MACAddr(key string, ha net.HardwareAddr) *Entry {
 }
 
 // Caller adds the file:line of the "caller" key.
-func (e *Entry) Caller(depth int, fullpath bool) *Entry {
+// If depth is negative, adds the full /path/to/file:line of the "caller" key.
+func (e *Entry) Caller(depth int) *Entry {
 	if e != nil {
-		_, file, line, _ := runtime.Caller(depth)
-		e.caller(file, line, fullpath)
+		var full bool
+		var rpc [1]uintptr
+		if depth < 0 {
+			depth, full = -depth, true
+		}
+		e.caller(callers(depth, rpc[:]), rpc[:], full)
 	}
 	return e
 }
@@ -1480,7 +1563,12 @@ func (e *Entry) Msgs(args ...interface{}) {
 	e.Msg("")
 }
 
-func (e *Entry) caller(file string, line int, fullpath bool) {
+func (e *Entry) caller(n int, rpc []uintptr, fullpath bool) {
+	if n < 1 {
+		return
+	}
+	frame, _ := runtime.CallersFrames(rpc).Next()
+	file := frame.File
 	if !fullpath {
 		var i int
 		for i = len(file) - 1; i >= 0; i-- {
@@ -1496,7 +1584,7 @@ func (e *Entry) caller(file string, line int, fullpath bool) {
 	e.buf = append(e.buf, ",\"caller\":\""...)
 	e.buf = append(e.buf, file...)
 	e.buf = append(e.buf, ':')
-	e.buf = strconv.AppendInt(e.buf, int64(line), 10)
+	e.buf = strconv.AppendInt(e.buf, int64(frame.Line), 10)
 	e.buf = append(e.buf, "\",\"goid\":"...)
 	e.buf = strconv.AppendInt(e.buf, int64(goid()), 10)
 }
@@ -1976,6 +2064,8 @@ func wlprintf(w Writer, level Level, format string, args ...interface{}) (int, e
 func b2s(b []byte) string { return *(*string)(unsafe.Pointer(&b)) }
 
 //go:noescape
+//go:linkname now time.now
+func now() (sec int64, nsec int32, mono int64)
 
 //go:noescape
 //go:linkname absDate time.absDate
@@ -1984,6 +2074,10 @@ func absDate(abs uint64, full bool) (year int, month time.Month, day int, yday i
 //go:noescape
 //go:linkname absClock time.absClock
 func absClock(abs uint64) (hour, min, sec int)
+
+//go:noescape
+//go:linkname callers runtime.callers
+func callers(skip int, pcbuf []uintptr) int
 
 // Fastrandn returns a pseudorandom uint32 in [0,n).
 //
