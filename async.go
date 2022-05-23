@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// AsyncWriter is a Writer that writes asynchronously.
+// AsyncWriter is an Writer that writes asynchronously.
 type AsyncWriter struct {
 	// ChannelSize is the size of the data channel, the default size is 1.
 	ChannelSize uint
