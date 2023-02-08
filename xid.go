@@ -1,181 +1,374 @@
 package log
 
 import (
-	"sync/atomic"
+	"encoding/base64"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"strconv"
+	"sync"
 	"time"
 )
 
-var counter = Fastrandn(4294967295)
+var (
+	// Epoch is set to the twitter snowflake epoch of Nov 04 2010 01:42:54 UTC in milliseconds
+	// You may customize this to set a different epoch for your application.
+	Epoch int64 = 1288834974657
 
-// XID represents a unique request id
-type XID [12]byte
+	// NodeBits holds the number of bits to use for Node
+	// Remember, you have a total 22 bits to share between Node/Step
+	NodeBits uint8 = 10
 
-var nilXID XID
+	// StepBits holds the number of bits to use for Step
+	// Remember, you have a total 22 bits to share between Node/Step
+	StepBits uint8 = 12
 
-// NewXID generates a globally unique XID
-func NewXID() XID {
-	sec, _, _ := now()
-	return NewXIDWithTime(sec)
+	// DEPRECATED: the below four variables will be removed in a future release.
+	mu        sync.Mutex
+	nodeMax   int64 = -1 ^ (-1 << NodeBits)
+	nodeMask        = nodeMax << StepBits
+	stepMask  int64 = -1 ^ (-1 << StepBits)
+	timeShift       = NodeBits + StepBits
+	nodeShift       = StepBits
+)
+
+const encodeBase32Map = "ybndrfg8ejkmcpqxot1uwisza345h769"
+
+var decodeBase32Map [256]byte
+
+const encodeBase58Map = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
+
+var decodeBase58Map [256]byte
+
+// A JSONSyntaxError is returned from UnmarshalJSON if an invalid ID is provided.
+type JSONSyntaxError struct{ original []byte }
+
+func (j JSONSyntaxError) Error() string {
+	return fmt.Sprintf("invalid snowflake ID %q", string(j.original))
 }
 
-// NewXIDWithTime generates a globally unique XID with unix timestamp
-func NewXIDWithTime(timestamp int64) (x XID) {
-	// timestamp
-	x[0] = byte(timestamp >> 24)
-	x[1] = byte(timestamp >> 16)
-	x[2] = byte(timestamp >> 8)
-	x[3] = byte(timestamp)
-	// machine
-	x[4] = machine[0]
-	x[5] = machine[1]
-	x[6] = machine[2]
-	// pid
-	x[7] = byte(pid >> 8)
-	x[8] = byte(pid)
-	// counter
-	i := atomic.AddUint32(&counter, 1)
-	x[9] = byte(i >> 16)
-	x[10] = byte(i >> 8)
-	x[11] = byte(i)
-	return
-}
+// ErrInvalidBase58 is returned by ParseBase58 when given an invalid []byte
+var ErrInvalidBase58 = errors.New("invalid base58")
 
-// Time returns the timestamp part of the id.
-func (x XID) Time() time.Time {
-	return time.Unix(int64(x[0])<<32|int64(x[1])<<16|int64(x[2])<<8|int64(x[3]), 0)
-}
+// ErrInvalidBase32 is returned by ParseBase32 when given an invalid []byte
+var ErrInvalidBase32 = errors.New("invalid base32")
 
-// Machine returns the 3-byte machine id part of the id.
-func (x XID) Machine() []byte {
-	return x[4:7]
-}
+var node *Node
 
-// Pid returns the process id part of the id.
-func (x XID) Pid() uint16 {
-	return uint16(x[7])<<8 | uint16(x[8])
-}
+// Create maps for decoding Base58/Base32.
+// This speeds up the process tremendously.
+func init() {
 
-// Counter returns the incrementing value part of the id.
-func (x XID) Counter() uint32 {
-	return uint32(x[9])<<16 | uint32(x[10])<<8 | uint32(x[11])
-}
-
-const base32 = "0123456789abcdefghijklmnopqrstuv"
-
-func (x XID) encode(dst []byte) {
-	dst[19] = base32[(x[11]<<4)&0x1F]
-	dst[18] = base32[(x[11]>>1)&0x1F]
-	dst[17] = base32[(x[11]>>6)&0x1F|(x[10]<<2)&0x1F]
-	dst[16] = base32[x[10]>>3]
-	dst[15] = base32[x[9]&0x1F]
-	dst[14] = base32[(x[9]>>5)|(x[8]<<3)&0x1F]
-	dst[13] = base32[(x[8]>>2)&0x1F]
-	dst[12] = base32[x[8]>>7|(x[7]<<1)&0x1F]
-	dst[11] = base32[(x[7]>>4)&0x1F|(x[6]<<4)&0x1F]
-	dst[10] = base32[(x[6]>>1)&0x1F]
-	dst[9] = base32[(x[6]>>6)&0x1F|(x[5]<<2)&0x1F]
-	dst[8] = base32[x[5]>>3]
-	dst[7] = base32[x[4]&0x1F]
-	dst[6] = base32[x[4]>>5|(x[3]<<3)&0x1F]
-	dst[5] = base32[(x[3]>>2)&0x1F]
-	dst[4] = base32[x[3]>>7|(x[2]<<1)&0x1F]
-	dst[3] = base32[(x[2]>>4)&0x1F|(x[1]<<4)&0x1F]
-	dst[2] = base32[(x[1]>>1)&0x1F]
-	dst[1] = base32[(x[1]>>6)&0x1F|(x[0]<<2)&0x1F]
-	dst[0] = base32[x[0]>>3]
-}
-
-// String returns a base32 hex lowercased representation of the id.
-func (x XID) String() string {
-	dst := make([]byte, 20)
-	x.encode(dst)
-	return b2s(dst)
-}
-
-// MarshalText implements encoding/text TextMarshaler interface
-func (x XID) MarshalText() (dst []byte, err error) {
-	dst = make([]byte, 20)
-	x.encode(dst)
-	return
-}
-
-// MarshalJSON implements encoding/json Marshaler interface
-func (x XID) MarshalJSON() (dst []byte, err error) {
-	if x == nilXID {
-		dst = []byte("null")
-	} else {
-		dst = make([]byte, 22)
-		dst[0] = '"'
-		x.encode(dst[1:21])
-		dst[21] = '"'
+	for i := 0; i < len(decodeBase58Map); i++ {
+		decodeBase58Map[i] = 0xFF
 	}
-	return
-}
 
-// UnmarshalText implements encoding/text TextUnmarshaler interface
-func (x *XID) UnmarshalText(text []byte) (err error) {
-	*x, err = ParseXID(b2s(text))
-	return
-}
-
-// UnmarshalJSON implements encoding/json Unmarshaler interface
-func (x *XID) UnmarshalJSON(b []byte) (err error) {
-	if string(b) == "null" {
-		*x = nilXID
-		return
+	for i := 0; i < len(encodeBase58Map); i++ {
+		decodeBase58Map[encodeBase58Map[i]] = byte(i)
 	}
-	*x, err = ParseXID(b2s(b[1 : len(b)-1]))
-	return
+
+	for i := 0; i < len(decodeBase32Map); i++ {
+		decodeBase32Map[i] = 0xFF
+	}
+
+	for i := 0; i < len(encodeBase32Map); i++ {
+		decodeBase32Map[encodeBase32Map[i]] = byte(i)
+	}
+	node, _ = NewNode(1)
 }
 
-const base32r = "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18" +
-	"\x19\x1a\x1b\x1c\x1d\x1e\x1f\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff" +
-	"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
+// A Node struct holds the basic information needed for a snowflake generator
+// node
+type Node struct {
+	mu    sync.Mutex
+	epoch time.Time
+	time  int64
+	node  int64
+	step  int64
 
-type xidError string
+	nodeMax   int64
+	nodeMask  int64
+	stepMask  int64
+	timeShift uint8
+	nodeShift uint8
+}
 
-func (e xidError) Error() string { return string(e) }
+// An ID is a custom type used for a snowflake ID.  This is used so we can
+// attach methods onto the ID.
+type ID int64
 
-// ErrInvalidXID is returned when trying to parse an invalid XID
-const ErrInvalidXID = xidError("xid: invalid XID")
+// NewNode returns a new snowflake node that can be used to generate snowflake
+// IDs
+func NewNode(node int64) (*Node, error) {
 
-// ParseXID parses an XID from its string representation
-func ParseXID(s string) (x XID, err error) {
-	if len(s) != 20 {
-		err = ErrInvalidXID
-		return
+	if NodeBits+StepBits > 22 {
+		return nil, errors.New("Remember, you have a total 22 bits to share between Node/Step")
 	}
-	_ = s[19]
-	for i := 0; i < 20; i++ {
-		if base32r[s[i]] == 0xff {
-			err = ErrInvalidXID
-			return
+	// re-calc in case custom NodeBits or StepBits were set
+	// DEPRECATED: the below block will be removed in a future release.
+	mu.Lock()
+	nodeMax = -1 ^ (-1 << NodeBits)
+	nodeMask = nodeMax << StepBits
+	stepMask = -1 ^ (-1 << StepBits)
+	timeShift = NodeBits + StepBits
+	nodeShift = StepBits
+	mu.Unlock()
+
+	n := Node{}
+	n.node = node
+	n.nodeMax = -1 ^ (-1 << NodeBits)
+	n.nodeMask = n.nodeMax << StepBits
+	n.stepMask = -1 ^ (-1 << StepBits)
+	n.timeShift = NodeBits + StepBits
+	n.nodeShift = StepBits
+
+	if n.node < 0 || n.node > n.nodeMax {
+		return nil, errors.New("Node number must be between 0 and " + strconv.FormatInt(n.nodeMax, 10))
+	}
+
+	var curTime = time.Now()
+	// add time.Duration to curTime to make sure we use the monotonic clock if available
+	n.epoch = curTime.Add(time.Unix(Epoch/1000, (Epoch%1000)*1000000).Sub(curTime))
+
+	return &n, nil
+}
+
+// New creates and returns a unique snowflake ID
+// To help guarantee uniqueness
+// - Make sure your system is keeping accurate system time
+// - Make sure you never have multiple nodes running with the same node ID
+func (n *Node) New() ID {
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	now := time.Since(n.epoch).Milliseconds()
+
+	if now == n.time {
+		n.step = (n.step + 1) & n.stepMask
+
+		if n.step == 0 {
+			for now <= n.time {
+				now = time.Since(n.epoch).Milliseconds()
+			}
 		}
+	} else {
+		n.step = 0
 	}
-	x[0] = base32r[s[0]]<<3 | base32r[s[1]]>>2
-	x[1] = base32r[s[1]]<<6 | base32r[s[2]]<<1 | base32r[s[3]]>>4
-	x[2] = base32r[s[3]]<<4 | base32r[s[4]]>>1
-	x[3] = base32r[s[4]]<<7 | base32r[s[5]]<<2 | base32r[s[6]]>>3
-	x[4] = base32r[s[6]]<<5 | base32r[s[7]]
-	x[5] = base32r[s[8]]<<3 | base32r[s[9]]>>2
-	x[6] = base32r[s[9]]<<6 | base32r[s[10]]<<1 | base32r[s[11]]>>4
-	x[7] = base32r[s[11]]<<4 | base32r[s[12]]>>1
-	x[8] = base32r[s[12]]<<7 | base32r[s[13]]<<2 | base32r[s[14]]>>3
-	x[9] = base32r[s[14]]<<5 | base32r[s[15]]
-	x[10] = base32r[s[16]]<<3 | base32r[s[17]]>>2
-	x[11] = base32r[s[17]]<<6 | base32r[s[18]]<<1 | base32r[s[19]]>>4
-	return
+
+	n.time = now
+
+	r := ID((now)<<n.timeShift |
+		(n.node << n.nodeShift) |
+		(n.step),
+	)
+
+	return r
+}
+
+// Int64 returns an int64 of the snowflake ID
+func (f ID) Int64() int64 {
+	return int64(f)
+}
+
+// ParseInt64 converts an int64 into a snowflake ID
+func ParseInt64(id int64) ID {
+	return ID(id)
+}
+
+// String returns a string of the snowflake ID
+func (f ID) String() string {
+	return strconv.FormatInt(int64(f), 10)
+}
+
+// ParseString converts a string into a snowflake ID
+func ParseString(id string) (ID, error) {
+	i, err := strconv.ParseInt(id, 10, 64)
+	return ID(i), err
+
+}
+
+// Base2 returns a string base2 of the snowflake ID
+func (f ID) Base2() string {
+	return strconv.FormatInt(int64(f), 2)
+}
+
+// ParseBase2 converts a Base2 string into a snowflake ID
+func ParseBase2(id string) (ID, error) {
+	i, err := strconv.ParseInt(id, 2, 64)
+	return ID(i), err
+}
+
+// Base32 uses the z-base-32 character set but encodes and decodes similar
+// to base58, allowing it to create an even smaller result string.
+// NOTE: There are many different base32 implementations so becareful when
+// doing any interoperation.
+func (f ID) Base32() string {
+
+	if f < 32 {
+		return string(encodeBase32Map[f])
+	}
+
+	b := make([]byte, 0, 12)
+	for f >= 32 {
+		b = append(b, encodeBase32Map[f%32])
+		f /= 32
+	}
+	b = append(b, encodeBase32Map[f])
+
+	for x, y := 0, len(b)-1; x < y; x, y = x+1, y-1 {
+		b[x], b[y] = b[y], b[x]
+	}
+
+	return string(b)
+}
+
+// ParseBase32 parses a base32 []byte into a snowflake ID
+// NOTE: There are many different base32 implementations so becareful when
+// doing any interoperation.
+func ParseBase32(b []byte) (ID, error) {
+
+	var id int64
+
+	for i := range b {
+		if decodeBase32Map[b[i]] == 0xFF {
+			return -1, ErrInvalidBase32
+		}
+		id = id*32 + int64(decodeBase32Map[b[i]])
+	}
+
+	return ID(id), nil
+}
+
+// Base36 returns a base36 string of the snowflake ID
+func (f ID) Base36() string {
+	return strconv.FormatInt(int64(f), 36)
+}
+
+// ParseBase36 converts a Base36 string into a snowflake ID
+func ParseBase36(id string) (ID, error) {
+	i, err := strconv.ParseInt(id, 36, 64)
+	return ID(i), err
+}
+
+// Base58 returns a base58 string of the snowflake ID
+func (f ID) Base58() string {
+
+	if f < 58 {
+		return string(encodeBase58Map[f])
+	}
+
+	b := make([]byte, 0, 11)
+	for f >= 58 {
+		b = append(b, encodeBase58Map[f%58])
+		f /= 58
+	}
+	b = append(b, encodeBase58Map[f])
+
+	for x, y := 0, len(b)-1; x < y; x, y = x+1, y-1 {
+		b[x], b[y] = b[y], b[x]
+	}
+
+	return string(b)
+}
+
+// ParseBase58 parses a base58 []byte into a snowflake ID
+func ParseBase58(b []byte) (ID, error) {
+
+	var id int64
+
+	for i := range b {
+		if decodeBase58Map[b[i]] == 0xFF {
+			return -1, ErrInvalidBase58
+		}
+		id = id*58 + int64(decodeBase58Map[b[i]])
+	}
+
+	return ID(id), nil
+}
+
+// Base64 returns a base64 string of the snowflake ID
+func (f ID) Base64() string {
+	return base64.StdEncoding.EncodeToString(f.Bytes())
+}
+
+// ParseBase64 converts a base64 string into a snowflake ID
+func ParseBase64(id string) (ID, error) {
+	b, err := base64.StdEncoding.DecodeString(id)
+	if err != nil {
+		return -1, err
+	}
+	return ParseBytes(b)
+
+}
+
+// Bytes returns a byte slice of the snowflake ID
+func (f ID) Bytes() []byte {
+	return []byte(f.String())
+}
+
+// ParseBytes converts a byte slice into a snowflake ID
+func ParseBytes(id []byte) (ID, error) {
+	i, err := strconv.ParseInt(string(id), 10, 64)
+	return ID(i), err
+}
+
+// IntBytes returns an array of bytes of the snowflake ID, encoded as a
+// big endian integer.
+func (f ID) IntBytes() [8]byte {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], uint64(f))
+	return b
+}
+
+// ParseIntBytes converts an array of bytes encoded as big endian integer as
+// a snowflake ID
+func ParseIntBytes(id [8]byte) ID {
+	return ID(int64(binary.BigEndian.Uint64(id[:])))
+}
+
+// Time returns an int64 unix timestamp in milliseconds of the snowflake ID time
+// DEPRECATED: the below function will be removed in a future release.
+func (f ID) Time() int64 {
+	return (int64(f) >> timeShift) + Epoch
+}
+
+// Node returns an int64 of the snowflake ID node number
+// DEPRECATED: the below function will be removed in a future release.
+func (f ID) Node() int64 {
+	return int64(f) & nodeMask >> nodeShift
+}
+
+// Step returns an int64 of the snowflake step (or sequence) number
+// DEPRECATED: the below function will be removed in a future release.
+func (f ID) Step() int64 {
+	return int64(f) & stepMask
+}
+
+// MarshalJSON returns a json byte array string of the snowflake ID.
+func (f ID) MarshalJSON() ([]byte, error) {
+	buff := make([]byte, 0, 22)
+	buff = append(buff, '"')
+	buff = strconv.AppendInt(buff, int64(f), 10)
+	buff = append(buff, '"')
+	return buff, nil
+}
+
+// UnmarshalJSON converts a json byte array of a snowflake ID into an ID type.
+func (f *ID) UnmarshalJSON(b []byte) error {
+	if len(b) < 3 || b[0] != '"' || b[len(b)-1] != '"' {
+		return JSONSyntaxError{b}
+	}
+
+	i, err := strconv.ParseInt(string(b[1:len(b)-1]), 10, 64)
+	if err != nil {
+		return err
+	}
+
+	*f = ID(i)
+	return nil
+}
+
+func New() ID {
+	return node.New()
 }

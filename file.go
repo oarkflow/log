@@ -3,7 +3,6 @@ package log
 import (
 	"crypto/md5"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,7 +23,7 @@ import (
 // `/var/log/foo/server.log`, a backup created at 6:30pm on Nov 11 2016 would
 // use the filename `/var/log/foo/server.2016-11-04T18-30-00.log`
 //
-// Cleaning Up Old Log Files
+// # Cleaning Up Old Log Files
 //
 // Whenever a new logfile gets created, old log files may be deleted.  The most
 // recent files according to filesystem modified time will be retained, up to a
@@ -322,7 +321,7 @@ var hostname, machine = func() (string, [16]byte) {
 	// append seed to hostname
 	data := []byte(host)
 	for _, file := range files {
-		if b, err := ioutil.ReadFile(file); err == nil {
+		if b, err := os.ReadFile(file); err == nil {
 			data = append(data, b...)
 		}
 	}

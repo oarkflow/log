@@ -16,7 +16,8 @@ func IsTerminal(fd uintptr) bool {
 // IMPORTANT: Don't use ConsoleWriter on critical path of a high concurrency and low latency application.
 //
 // Default output format:
-//     {Time} {Level} {Goid} {Caller} > {Message} {Key}={Value} {Key}={Value}
+//
+//	{Time} {Level} {Goid} {Caller} > {Message} {Key}={Value} {Key}={Value}
 //
 // Note: The performance of ConsoleWriter is not good enough, because it will
 // parses JSON input into structured records, then output in a specific order.
@@ -172,6 +173,48 @@ func (w *ConsoleWriter) format(out io.Writer, args *FormatterArgs) (n int, err e
 	} else {
 		b.B = append(b.B, '\n')
 	}
+	return out.Write(b.B)
+}
+
+type LogfmtFormatter struct {
+	TimeField string
+}
+
+func (f LogfmtFormatter) Formatter(out io.Writer, args *FormatterArgs) (n int, err error) {
+	b := bbpool.Get().(*bb)
+	b.B = b.B[:0]
+	defer bbpool.Put(b)
+
+	fmt.Fprintf(b, "%s=%s ", f.TimeField, args.Time)
+	if args.Level != "" && args.Level[0] != '?' {
+		fmt.Fprintf(b, "level=%s ", args.Level)
+	}
+	if args.Caller != "" {
+		fmt.Fprintf(b, "goid=%s caller=%s ", args.Goid, strconv.Quote(args.Caller))
+	}
+	if args.Stack != "" {
+		fmt.Fprintf(b, "stack=%s ", strconv.Quote(args.Stack))
+	}
+	// key and values
+	for _, kv := range args.KeyValues {
+		switch kv.ValueType {
+		case 't':
+			fmt.Fprintf(b, "%s ", kv.Key)
+		case 'f':
+			fmt.Fprintf(b, "%s=false ", kv.Key)
+		case 'n':
+			fmt.Fprintf(b, "%s=%s ", kv.Key, kv.Value)
+		case 'S':
+			fmt.Fprintf(b, "%s=%s ", kv.Key, kv.Value)
+		case 's':
+			fmt.Fprintf(b, "%s=%s ", kv.Key, strconv.Quote(kv.Value))
+		default:
+			fmt.Fprintf(b, "%s=%s ", kv.Key, strconv.Quote(kv.Value))
+		}
+	}
+	// message
+	fmt.Fprintf(b, "%s\n", strconv.Quote(args.Message))
+
 	return out.Write(b.B)
 }
 
