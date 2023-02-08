@@ -3,6 +3,7 @@ package log
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sujit-baniya/log/fqdn"
 	"io"
 	stdLog "log"
 	"net"
@@ -19,6 +20,7 @@ import (
 // DefaultLogger is the global logger.
 var DefaultLogger = Logger{
 	Level:      DebugLevel,
+	LogNode:    true,
 	Caller:     0,
 	TimeField:  "",
 	TimeFormat: "",
@@ -72,6 +74,8 @@ type ObjectMarshaler interface {
 type Logger struct {
 	// Level defines log levels.
 	Level Level
+
+	LogNode bool
 
 	// Caller determines if adds the file:line of the "caller" key.
 	// If Caller is negative, adds the full /path/to/file:line of the "caller" key.
@@ -1554,6 +1558,10 @@ var notTest = true
 func (e *Entry) Msg(msg string) {
 	if e == nil {
 		return
+	}
+	if DefaultLogger.LogNode {
+		hostname, _ := fqdn.FqdnHostname()
+		e.Str("host_platform", hostname)
 	}
 	if msg != "" {
 		e.buf = append(e.buf, ",\"message\":\""...)
