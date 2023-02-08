@@ -1427,14 +1427,14 @@ func (e *Entry) Hex(key string, val []byte) *Entry {
 }
 
 // Xid adds the field key with xid.ID as a base32 string to the entry.
-func (e *Entry) Xid(key string, xid [12]byte) *Entry {
+func (e *Entry) Xid(key string, id int64) *Entry {
 	if e == nil {
 		return nil
 	}
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
-	e.buf = append(e.buf, (XID(xid)).String()...)
+	e.buf = append(e.buf, (ID(id)).String()...)
 	e.buf = append(e.buf, '"')
 
 	return e
