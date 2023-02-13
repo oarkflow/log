@@ -217,7 +217,7 @@ out:
 	return fqdn, err
 }
 
-// FqdnHostname Try to get fully qualified hostname for current machine.
+// Hostname Try to get fully qualified hostname for current machine.
 //
 // It tries to mimic how `hostname -f` works, so except for few edge cases you
 // should get the same result from both. One thing that needs to be mentioned is
@@ -236,7 +236,7 @@ out:
 //
 // If none of steps above succeeds, ErrFqdnNotFound is returned as error. You
 // will probably want to just use output from os.Hostname() at that point.
-func FqdnHostname() (string, error) {
+func Hostname() (string, error) {
 	var (
 		fqdn string
 		host string

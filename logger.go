@@ -1,6 +1,7 @@
 package log
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/sujit-baniya/log/fqdn"
@@ -19,19 +20,22 @@ import (
 
 // DefaultLogger is the global logger.
 var DefaultLogger = Logger{
-	Level:      DebugLevel,
-	LogNode:    true,
-	Caller:     0,
-	TimeField:  "",
-	TimeFormat: "",
-	Writer:     IOWriter{os.Stderr},
+	Level:         DebugLevel,
+	LogNode:       true,
+	EnableTracing: true,
+	TraceIDField:  "request_trace_id",
+	Caller:        0,
+	TimeField:     "",
+	TimeFormat:    "",
+	Writer:        IOWriter{os.Stderr},
 }
 
 // Entry represents a log entry. It is instanced by one of the level method of Logger and finalized by the Msg or Msgf method.
 type Entry struct {
-	buf   []byte
-	Level Level
-	w     Writer
+	buf     []byte
+	Level   Level
+	context context.Context
+	w       Writer
 }
 
 // Writer defines an entry writer interface.
@@ -77,6 +81,10 @@ type Logger struct {
 
 	LogNode bool
 
+	EnableTracing bool
+
+	TraceIDField string
+
 	// Caller determines if adds the file:line of the "caller" key.
 	// If Caller is negative, adds the full /path/to/file:line of the "caller" key.
 	Caller int
@@ -85,7 +93,7 @@ type Logger struct {
 	TimeField string
 
 	// TimeFormat specifies the time format in output. It uses time.RFC3339 with milliseconds if empty.
-	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formated as UNIX timestamp.
+	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formatted as UNIX timestamp.
 	TimeFormat string
 
 	// Context specifies an optional context of logger.
@@ -656,7 +664,13 @@ func (l *Logger) header(level Level) *Entry {
 	return e
 }
 
-// Time append append t formated as string using time.RFC3339Nano.
+// WithContext use context
+func (e *Entry) WithContext(ctx context.Context) *Entry {
+	e.context = ctx
+	return e
+}
+
+// Time append t formatted as string using time.RFC3339Nano.
 func (e *Entry) Time(key string, t time.Time) *Entry {
 	if e == nil {
 		return nil
@@ -669,7 +683,7 @@ func (e *Entry) Time(key string, t time.Time) *Entry {
 	return e
 }
 
-// TimeFormat append append t formated as string using timefmt.
+// TimeFormat append t formatted as string using timefmt.
 func (e *Entry) TimeFormat(key string, timefmt string, t time.Time) *Entry {
 	if e == nil {
 		return nil
@@ -694,7 +708,7 @@ func (e *Entry) TimeFormat(key string, timefmt string, t time.Time) *Entry {
 	return e
 }
 
-// Times append append a formated as string array using time.RFC3339Nano.
+// Times append a formatted as string array using time.RFC3339Nano.
 func (e *Entry) Times(key string, a []time.Time) *Entry {
 	if e == nil {
 		return nil
@@ -715,7 +729,7 @@ func (e *Entry) Times(key string, a []time.Time) *Entry {
 	return e
 }
 
-// TimesFormat append append a formated as string array using timefmt.
+// TimesFormat append a formatted as string array using timefmt.
 func (e *Entry) TimesFormat(key string, timefmt string, a []time.Time) *Entry {
 	if e == nil {
 		return nil
@@ -747,7 +761,7 @@ func (e *Entry) TimesFormat(key string, timefmt string, a []time.Time) *Entry {
 	return e
 }
 
-// Bool append append the val as a bool to the entry.
+// Bool append the val as a bool to the entry.
 func (e *Entry) Bool(key string, b bool) *Entry {
 	if e == nil {
 		return nil
@@ -1559,8 +1573,25 @@ func (e *Entry) Msg(msg string) {
 	if e == nil {
 		return
 	}
+	if e.context != nil && DefaultLogger.EnableTracing {
+		traceID := e.context.Value(DefaultLogger.TraceIDField)
+		if traceID == nil {
+			e.Str(DefaultLogger.TraceIDField, New().String())
+		} else {
+			switch v := traceID.(type) {
+			case string:
+				if v == "" {
+					e.Str(DefaultLogger.TraceIDField, New().String())
+				} else {
+					e.Str(DefaultLogger.TraceIDField, v)
+				}
+			case int64:
+				e.Int64(DefaultLogger.TraceIDField, v)
+			}
+		}
+	}
 	if DefaultLogger.LogNode {
-		hostname, _ := fqdn.FqdnHostname()
+		hostname, _ := fqdn.Hostname()
 		e.Str("host_platform", hostname)
 	}
 	if msg != "" {
