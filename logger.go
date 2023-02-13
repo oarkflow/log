@@ -1573,20 +1573,24 @@ func (e *Entry) Msg(msg string) {
 	if e == nil {
 		return
 	}
-	if e.context != nil && DefaultLogger.EnableTracing {
-		traceID := e.context.Value(DefaultLogger.TraceIDField)
-		if traceID == nil {
+	if DefaultLogger.EnableTracing {
+		if e.context == nil {
 			e.Str(DefaultLogger.TraceIDField, New().String())
 		} else {
-			switch v := traceID.(type) {
-			case string:
-				if v == "" {
-					e.Str(DefaultLogger.TraceIDField, New().String())
-				} else {
-					e.Str(DefaultLogger.TraceIDField, v)
+			traceID := e.context.Value(DefaultLogger.TraceIDField)
+			if traceID == nil {
+				e.Str(DefaultLogger.TraceIDField, New().String())
+			} else {
+				switch v := traceID.(type) {
+				case string:
+					if v == "" {
+						e.Str(DefaultLogger.TraceIDField, New().String())
+					} else {
+						e.Str(DefaultLogger.TraceIDField, v)
+					}
+				case int64:
+					e.Int64(DefaultLogger.TraceIDField, v)
 				}
-			case int64:
-				e.Int64(DefaultLogger.TraceIDField, v)
 			}
 		}
 	}
