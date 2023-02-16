@@ -1911,6 +1911,28 @@ func (e *Entry) EmbedObject(obj ObjectMarshaler) *Entry {
 	return e
 }
 
+func (e *Entry) Map(data any) *Entry {
+	switch data := data.(type) {
+	case map[string]any:
+		for key, value := range data {
+			e.any(key, value)
+		}
+	default:
+		if reflect.ValueOf(data).Kind() == reflect.Struct {
+			var mp map[string]any
+			bt, err := json.Marshal(data)
+			if err != nil {
+				err = json.Unmarshal(bt, &mp)
+				for key, value := range mp {
+					e.any(key, value)
+				}
+			}
+
+		}
+	}
+	return e
+}
+
 // Any adds the field key with f as an any value to the entry.
 func (e *Entry) any(key string, value interface{}) *Entry {
 	if value == nil || (*[2]uintptr)(unsafe.Pointer(&value))[1] == 0 {
