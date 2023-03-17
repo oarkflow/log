@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sujit-baniya/log/fqdn"
+	"github.com/oarkflow/log/fqdn"
 	"io"
 	stdLog "log"
 	"net"

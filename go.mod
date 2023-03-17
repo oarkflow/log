@@ -1,3 +1,3 @@
-module github.com/sujit-baniya/log
+module github.com/oarkflow/log
 
 go 1.19
