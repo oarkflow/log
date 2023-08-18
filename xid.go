@@ -202,7 +202,7 @@ func ParseBase2(id string) (ID, error) {
 // Base32 uses the z-base-32 character set but encodes and decodes similar
 // to base58, allowing it to create an even smaller result string.
 // NOTE: There are many different base32 implementations so becareful when
-// doing any interoperation.
+// doing Any interoperation.
 func (f ID) Base32() string {
 
 	if f < 32 {
@@ -225,7 +225,7 @@ func (f ID) Base32() string {
 
 // ParseBase32 parses a base32 []byte into a snowflake ID
 // NOTE: There are many different base32 implementations so becareful when
-// doing any interoperation.
+// doing Any interoperation.
 func ParseBase32(b []byte) (ID, error) {
 
 	var id int64
@@ -354,7 +354,7 @@ func (f ID) MarshalJSON() ([]byte, error) {
 	return buff, nil
 }
 
-// UnmarshalJSON converts a json byte array of a snowflake ID into an ID type.
+// UnmarshalJSON converts a json byte array of a snowflake ID into an ID type .
 func (f *ID) UnmarshalJSON(b []byte) error {
 	if len(b) < 3 || b[0] != '"' || b[len(b)-1] != '"' {
 		return JSONSyntaxError{b}
