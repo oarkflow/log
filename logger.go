@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	stdLog "log"
+	"math"
 	"net"
 	"net/netip"
 	"os"
@@ -25,7 +26,7 @@ var DefaultLogger = Logger{
 	Level:         DebugLevel,
 	LogNode:       true,
 	EnableTracing: true,
-	TraceIDField:  "request_trace_id",
+	TraceIDField:  "trace_id",
 	Caller:        0,
 	TimeField:     "",
 	TimeFormat:    "",
@@ -98,6 +99,9 @@ type Logger struct {
 	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formated as UNIX timestamp.
 	TimeFormat string
 
+	// TimeLocation specifices that the location which TimeFormat used. It uses time.Local if empty.
+	TimeLocation *time.Location
+
 	// Context specifies an optional context of logger.
 	Context Context
 
@@ -127,8 +131,8 @@ func Trace() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -143,8 +147,8 @@ func Debug() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -159,8 +163,8 @@ func Info() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -175,8 +179,8 @@ func Warn() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -191,8 +195,8 @@ func Error() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -207,8 +211,8 @@ func Fatal() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -223,8 +227,8 @@ func Panic() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -236,8 +240,8 @@ func Printf(format string, v ...interface{}) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	e.Msgf(format, v...)
 }
@@ -252,8 +256,8 @@ func (l *Logger) Trace() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -268,8 +272,8 @@ func (l *Logger) Debug() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -284,8 +288,8 @@ func (l *Logger) Info() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -300,8 +304,8 @@ func (l *Logger) Warn() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -316,8 +320,8 @@ func (l *Logger) Error() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -332,8 +336,8 @@ func (l *Logger) Fatal() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -348,8 +352,8 @@ func (l *Logger) Panic() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -361,8 +365,8 @@ func (l *Logger) Log() (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -377,8 +381,8 @@ func (l *Logger) WithLevel(level Level) (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -403,8 +407,8 @@ func (l *Logger) Err(err error) (e *Entry) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller, &pc, 1, 1), pc, full)
 	}
 	return
 }
@@ -422,8 +426,8 @@ func (l *Logger) Printf(format string, v ...interface{}) {
 			if caller < 0 {
 				caller, full = -caller, true
 			}
-			var rpc [1]uintptr
-			e.caller(callers(caller, rpc[:]), rpc[:], full)
+			var pc uintptr
+			e.caller(caller1(caller, &pc, 1, 1), pc, full)
 		}
 	}
 	e.Msgf(format, v...)
@@ -458,10 +462,6 @@ var timeOffset, timeZone = func() (int64, string) {
 	return int64(n), s
 }()
 
-func (l *Logger) silent(level Level) bool {
-	return uint32(level) < atomic.LoadUint32((*uint32)(&l.Level))
-}
-
 func (l *Logger) header(level Level) *Entry {
 	e := epool.Get().(*Entry)
 	e.buf = e.buf[:0]
@@ -479,12 +479,29 @@ func (l *Logger) header(level Level) *Entry {
 		e.buf = append(e.buf, l.TimeField...)
 		e.buf = append(e.buf, '"', ':')
 	}
+	offset := timeOffset
+	if l.TimeLocation != nil {
+		if l.TimeLocation == time.UTC {
+			offset = 0
+		} else if l.TimeLocation == time.Local {
+			offset = timeOffset
+		} else {
+			format := l.TimeFormat
+			if format == "" {
+				format = "2006-01-02T15:04:05.999Z07:00"
+			}
+			e.buf = append(e.buf, '"')
+			e.buf = timeNow().In(l.TimeLocation).AppendFormat(e.buf, format)
+			e.buf = append(e.buf, '"')
+			goto headerlevel
+		}
+	}
 	switch l.TimeFormat {
 	case "":
 		sec, nsec, _ := now()
 		var tmp [32]byte
 		var buf []byte
-		if timeOffset == 0 {
+		if offset == 0 {
 			// "2006-01-02T15:04:05.999Z"
 			tmp[25] = '"'
 			tmp[24] = 'Z'
@@ -501,7 +518,7 @@ func (l *Logger) header(level Level) *Entry {
 			buf = tmp[:31]
 		}
 		// date time
-		sec += 9223372028715321600 + timeOffset // unixToInternal + internalToAbsolute + timeOffset
+		sec += 9223372028715321600 + offset // unixToInternal + internalToAbsolute + timeOffset
 		year, month, day, _ := absDate(uint64(sec), true)
 		hour, minute, second := absClock(uint64(sec))
 		// year
@@ -639,9 +656,14 @@ func (l *Logger) header(level Level) *Entry {
 		e.buf = append(e.buf, tmp[:]...)
 	default:
 		e.buf = append(e.buf, '"')
-		e.buf = timeNow().AppendFormat(e.buf, l.TimeFormat)
+		if l.TimeLocation == time.UTC {
+			e.buf = timeNow().UTC().AppendFormat(e.buf, l.TimeFormat)
+		} else {
+			e.buf = timeNow().AppendFormat(e.buf, l.TimeFormat)
+		}
 		e.buf = append(e.buf, '"')
 	}
+headerlevel:
 	// level
 	switch level {
 	case DebugLevel:
@@ -953,6 +975,36 @@ func (e *Entry) Errs(key string, errs []error) *Entry {
 	return e
 }
 
+// https://github.com/golang/go/blob/master/src/encoding/json/encode.go#L541
+func appendFloat(b []byte, f float64, bits int) []byte {
+	switch {
+	case math.IsNaN(f):
+		return append(b, `"NaN"`...)
+	case math.IsInf(f, 1):
+		return append(b, `"+Inf"`...)
+	case math.IsInf(f, -1):
+		return append(b, `"-Inf"`...)
+	}
+	abs := math.Abs(f)
+	fmt := byte('f')
+	// Note: Must use float32 comparisons for underlying float32 value to get precise cutoffs right.
+	if abs != 0 {
+		if bits == 64 && (abs < 1e-6 || abs >= 1e21) || bits == 32 && (float32(abs) < 1e-6 || float32(abs) >= 1e21) {
+			fmt = 'e'
+		}
+	}
+	b = strconv.AppendFloat(b, f, fmt, -1, int(bits))
+	if fmt == 'e' {
+		// clean up e-09 to e-9
+		n := len(b)
+		if n >= 4 && b[n-4] == 'e' && b[n-3] == '-' && b[n-2] == '0' {
+			b[n-2] = b[n-1]
+			b = b[:n-1]
+		}
+	}
+	return b
+}
+
 // Float64 adds the field key with f as a float64 to the entry.
 func (e *Entry) Float64(key string, f float64) *Entry {
 	if e == nil {
@@ -961,7 +1013,19 @@ func (e *Entry) Float64(key string, f float64) *Entry {
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
-	e.buf = strconv.AppendFloat(e.buf, f, 'f', -1, 64)
+	e.buf = appendFloat(e.buf, f, 64)
+	return e
+}
+
+// Float32 adds the field key with f as a float32 to the entry.
+func (e *Entry) Float32(key string, f float32) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = appendFloat(e.buf, float64(f), 32)
 	return e
 }
 
@@ -977,7 +1041,7 @@ func (e *Entry) Floats64(key string, f []float64) *Entry {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
 		}
-		e.buf = strconv.AppendFloat(e.buf, a, 'f', -1, 64)
+		e.buf = appendFloat(e.buf, a, 64)
 	}
 	e.buf = append(e.buf, ']')
 	return e
@@ -995,7 +1059,7 @@ func (e *Entry) Floats32(key string, f []float32) *Entry {
 		if i != 0 {
 			e.buf = append(e.buf, ',')
 		}
-		e.buf = strconv.AppendFloat(e.buf, float64(a), 'f', -1, 32)
+		e.buf = appendFloat(e.buf, float64(a), 32)
 	}
 	e.buf = append(e.buf, ']')
 	return e
@@ -1035,11 +1099,6 @@ func (e *Entry) Uint64(key string, i uint64) *Entry {
 	e.buf = append(e.buf, '"', ':')
 	e.buf = strconv.AppendUint(e.buf, i, 10)
 	return e
-}
-
-// Float32 adds the field key with f as a float32 to the entry.
-func (e *Entry) Float32(key string, f float32) *Entry {
-	return e.Float64(key, float64(f))
 }
 
 // Int adds the field key with i as a int to the entry.
@@ -1446,6 +1505,21 @@ func (e *Entry) Hex(key string, val []byte) *Entry {
 	return e
 }
 
+// Encode encodes bytes using enc.AppendEncode to the entry.
+func (e *Entry) Encode(key string, val []byte, enc interface {
+	AppendEncode(dst, src []byte) []byte
+}) *Entry {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '"')
+	e.buf = enc.AppendEncode(e.buf, val)
+	e.buf = append(e.buf, '"')
+	return e
+}
+
 // Xid adds the field key with xid.ID as a base32 string to the entry.
 func (e *Entry) Xid(key string, id int64) *Entry {
 	if e == nil {
@@ -1572,11 +1646,11 @@ func (e *Entry) Type(key string, v interface{}) *Entry {
 func (e *Entry) Caller(depth int) *Entry {
 	if e != nil {
 		var full bool
-		var rpc [1]uintptr
+		var pc uintptr
 		if depth < 0 {
 			depth, full = -depth, true
 		}
-		e.caller(callers(depth, rpc[:]), rpc[:], full)
+		e.caller(caller1(depth, &pc, 1, 1), pc, full)
 	}
 	return e
 }
@@ -1707,20 +1781,28 @@ func (e *Entry) Msgs(args ...interface{}) {
 	e.Msg("")
 }
 
-func (e *Entry) caller(n int, rpc []uintptr, fullpath bool) {
+func (e *Entry) caller(n int, pc uintptr, fullpath bool) {
 	if n < 1 {
 		return
 	}
-	frame, _ := runtime.CallersFrames(rpc).Next()
-	file := frame.File
+
+	file, line := pcFileLine(pc)
 	if !fullpath {
-		var i int
+		var i, j int
 		for i = len(file) - 1; i >= 0; i-- {
 			if file[i] == '/' {
 				break
 			}
 		}
 		if i > 0 {
+			for j = i - 1; j >= 0; j-- {
+				if file[j] == '/' {
+					break
+				}
+			}
+			if j > 0 {
+				i = j
+			}
 			file = file[i+1:]
 		}
 	}
@@ -1728,7 +1810,7 @@ func (e *Entry) caller(n int, rpc []uintptr, fullpath bool) {
 	e.buf = append(e.buf, ",\"caller\":\""...)
 	e.buf = append(e.buf, file...)
 	e.buf = append(e.buf, ':')
-	e.buf = strconv.AppendInt(e.buf, int64(frame.Line), 10)
+	e.buf = strconv.AppendInt(e.buf, int64(line), 10)
 	e.buf = append(e.buf, "\",\"goid\":"...)
 	e.buf = strconv.AppendInt(e.buf, int64(goid()), 10)
 }
@@ -2130,8 +2212,8 @@ func (w *stdLogWriter) Write(p []byte) (int, error) {
 		if caller < 0 {
 			caller, full = -caller, true
 		}
-		var rpc [1]uintptr
-		e.caller(callers(caller+2, rpc[:]), rpc[:], full)
+		var pc uintptr
+		e.caller(caller1(caller+2, &pc, 1, 1), pc, full)
 	}
 	e.Msg(b2s(p))
 	return len(p), nil
@@ -2199,11 +2281,5 @@ func absDate(abs uint64, full bool) (year int, month time.Month, day int, yday i
 func absClock(abs uint64) (hour, min, sec int)
 
 //go:noescape
-//go:linkname callers runtime.callers
-func callers(skip int, pcbuf []uintptr) int
-
-// Fastrandn returns a pseudorandom uint32 in [0,n).
-//
-//go:noescape
-//go:linkname Fastrandn runtime.fastrandn
-func Fastrandn(x uint32) uint32
+//go:linkname caller1 runtime.callers
+func caller1(skip int, pc *uintptr, len, cap int) int
