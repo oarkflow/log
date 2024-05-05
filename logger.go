@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	stdLog "log"
 	"math"
 	"net"
 	"net/netip"
@@ -44,6 +43,17 @@ type Entry struct {
 // Writer defines an entry writer interface.
 type Writer interface {
 	WriteEntry(*Entry) (int, error)
+}
+
+// The WriterFunc type is an adapter to allow the use of
+// ordinary functions as log writers. If f is a function
+// with the appropriate signature, WriterFunc(f) is a
+// [Writer] that calls f.
+type WriterFunc func(*Entry) (int, error)
+
+// WriteEntry calls f(e).
+func (f WriterFunc) WriteEntry(e *Entry) (int, error) {
+	return f(e)
 }
 
 // IOWriter wraps an io.Writer to Writer.
@@ -92,7 +102,7 @@ type Logger struct {
 	// If Caller is negative, adds the full /path/to/file:line of the "caller" key.
 	Caller int
 
-	// TimeField defines the time filed name in output.  It uses "time" in if empty.
+	// TimeField defines the time field name in output.  It uses "time" in if empty.
 	TimeField string
 
 	// TimeFormat specifies the time format in output. It uses time.RFC3339 with milliseconds if empty.
@@ -1543,6 +1553,7 @@ func (e *Entry) IPAddr(key string, ip net.IP) *Entry {
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
 	if ip4 := ip.To4(); ip4 != nil {
+		_ = ip4[3]
 		e.buf = strconv.AppendInt(e.buf, int64(ip4[0]), 10)
 		e.buf = append(e.buf, '.')
 		e.buf = strconv.AppendInt(e.buf, int64(ip4[1]), 10)
@@ -1550,8 +1561,8 @@ func (e *Entry) IPAddr(key string, ip net.IP) *Entry {
 		e.buf = strconv.AppendInt(e.buf, int64(ip4[2]), 10)
 		e.buf = append(e.buf, '.')
 		e.buf = strconv.AppendInt(e.buf, int64(ip4[3]), 10)
-	} else {
-		e.buf = append(e.buf, ip.String()...)
+	} else if a, ok := netip.AddrFromSlice(ip); ok {
+		e.buf = a.AppendTo(e.buf)
 	}
 	e.buf = append(e.buf, '"')
 	return e
@@ -2135,7 +2146,27 @@ func (e *Entry) Any(key string, value interface{}) *Entry {
 	case fmt.Stringer:
 		e.Stringer(key, value)
 	default:
-		e.Interface(key, value)
+		e.buf = append(e.buf, ',', '"')
+		e.buf = append(e.buf, key...)
+		e.buf = append(e.buf, '"', ':')
+		b := bbpool.Get().(*bb)
+		b.B = b.B[:0]
+		enc := json.NewEncoder(b)
+		enc.SetEscapeHTML(false)
+		err := enc.Encode(value)
+		if err != nil {
+			b.B = b.B[:0]
+			fmt.Fprintf(b, `marshaling error: %+v`, err)
+			e.buf = append(e.buf, '"')
+			e.bytes(b.B)
+			e.buf = append(e.buf, '"')
+		} else {
+			b.B = b.B[:len(b.B)-1]
+			e.buf = append(e.buf, b.B...)
+		}
+		if cap(b.B) <= bbcap {
+			bbpool.Put(b)
+		}
 	}
 	return e
 }
@@ -2197,31 +2228,6 @@ func (e *Entry) Context(ctx Context) *Entry {
 		e.buf = append(e.buf, ctx...)
 	}
 	return e
-}
-
-type stdLogWriter struct {
-	Logger
-}
-
-func (w *stdLogWriter) Write(p []byte) (int, error) {
-	if w.Logger.silent(w.Logger.Level) {
-		return 0, nil
-	}
-	e := w.Logger.header(w.Level)
-	if caller, full := w.Logger.Caller, false; caller != 0 {
-		if caller < 0 {
-			caller, full = -caller, true
-		}
-		var pc uintptr
-		e.caller(caller1(caller+2, &pc, 1, 1), pc, full)
-	}
-	e.Msg(b2s(p))
-	return len(p), nil
-}
-
-// Std wraps the Logger to provide *stdLog.Logger
-func (l *Logger) Std(prefix string, flag int) *stdLog.Logger {
-	return stdLog.New(&stdLogWriter{*l}, prefix, flag)
 }
 
 // Dict sends the contextual fields with key to entry.
