@@ -2084,6 +2084,8 @@ func (e *Entry) Any(key string, value interface{}) *Entry {
 		value.MarshalObject(e)
 	case Context:
 		e.Dict(key, value)
+	case map[string]any:
+		e.Map(value)
 	case []time.Duration:
 		e.Durs(key, value)
 	case time.Duration:
