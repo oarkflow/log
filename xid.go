@@ -133,7 +133,7 @@ func NewNode(node int64) (*Node, error) {
 	return &n, nil
 }
 
-// New creates and returns a unique snowflake ID
+// NewID creates and returns a unique snowflake ID
 // To help guarantee uniqueness
 // - Make sure your system is keeping accurate system time
 // - Make sure you never have multiple nodes running with the same node ID
@@ -369,6 +369,6 @@ func (f *ID) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func New() ID {
+func NewID() ID {
 	return node.New()
 }

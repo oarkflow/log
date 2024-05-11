@@ -36,6 +36,7 @@ var DefaultLogger = Logger{
 type Entry struct {
 	buf     []byte
 	Level   Level
+	logger  *Logger
 	context context.Context
 	w       Writer
 }
@@ -1701,16 +1702,16 @@ func (e *Entry) Msg(msg string) {
 	}
 	if DefaultLogger.EnableTracing {
 		if e.context == nil {
-			e.Str(DefaultLogger.TraceIDField, New().String())
+			e.Str(DefaultLogger.TraceIDField, NewID().String())
 		} else {
 			traceID := e.context.Value(DefaultLogger.TraceIDField)
 			if traceID == nil {
-				e.Str(DefaultLogger.TraceIDField, New().String())
+				e.Str(DefaultLogger.TraceIDField, NewID().String())
 			} else {
 				switch v := traceID.(type) {
 				case string:
 					if v == "" {
-						e.Str(DefaultLogger.TraceIDField, New().String())
+						e.Str(DefaultLogger.TraceIDField, NewID().String())
 					} else {
 						e.Str(DefaultLogger.TraceIDField, v)
 					}
@@ -1756,6 +1757,24 @@ var bbpool = sync.Pool{
 	New: func() interface{} {
 		return new(bb)
 	},
+}
+
+func (e *Entry) Copy() Logger {
+	logger := Logger{
+		Context: e.buf,
+		Writer:  e.w,
+		Level:   e.Level,
+	}
+	if e.logger != nil {
+		logger.TimeField = e.logger.TimeField
+		logger.LogNode = e.logger.LogNode
+		logger.EnableTracing = e.logger.EnableTracing
+		logger.TraceIDField = e.logger.TraceIDField
+		logger.Caller = e.logger.Caller
+		logger.TimeFormat = e.logger.TimeFormat
+		logger.TimeLocation = e.logger.TimeLocation
+	}
+	return logger
 }
 
 // Msgf sends the entry with formatted msg added as the message field if not empty.
@@ -2210,6 +2229,13 @@ type Context []byte
 func NewContext(dst []byte) (e *Entry) {
 	e = new(Entry)
 	e.buf = dst
+	return
+}
+
+func With(logr *Logger) (e *Entry) {
+	e = new(Entry)
+	e.buf = logr.Context
+	e.logger = logr
 	return
 }
 
