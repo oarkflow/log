@@ -1762,8 +1762,6 @@ var bbpool = sync.Pool{
 func (e *Entry) Copy() Logger {
 	logger := Logger{
 		Context: e.buf,
-		Writer:  e.w,
-		Level:   e.Level,
 	}
 	if e.logger != nil {
 		logger.TimeField = e.logger.TimeField
@@ -1773,6 +1771,8 @@ func (e *Entry) Copy() Logger {
 		logger.Caller = e.logger.Caller
 		logger.TimeFormat = e.logger.TimeFormat
 		logger.TimeLocation = e.logger.TimeLocation
+		logger.Writer = e.logger.Writer
+		logger.Level = e.logger.Level
 	}
 	return logger
 }
