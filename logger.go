@@ -23,7 +23,7 @@ import (
 // DefaultLogger is the global logger.
 var DefaultLogger = Logger{
 	Level:         DebugLevel,
-	LogNode:       true,
+	LogNode:       false,
 	EnableTracing: true,
 	TraceIDField:  "trace_id",
 	Caller:        0,
