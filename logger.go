@@ -17,13 +17,12 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/oarkflow/log/fqdn"
+	"github.com/oarkflow/xid"
 )
 
 // DefaultLogger is the global logger.
 var DefaultLogger = Logger{
 	Level:         DebugLevel,
-	LogNode:       false,
 	EnableTracing: true,
 	TraceIDField:  "trace_id",
 	Caller:        0,
@@ -93,12 +92,9 @@ type Logger struct {
 	// Level defines log levels.
 	Level Level
 
-	LogNode bool
-
 	EnableTracing bool
 
 	TraceIDField string
-
 	// Caller determines if adds the file:line of the "caller" key.
 	// If Caller is negative, adds the full /path/to/file:line of the "caller" key.
 	Caller int
@@ -110,7 +106,7 @@ type Logger struct {
 	// If set with `TimeFormatUnix`, `TimeFormatUnixMs`, times are formated as UNIX timestamp.
 	TimeFormat string
 
-	// TimeLocation specifices that the location which TimeFormat used. It uses time.Local if empty.
+	// TimeLocation specifics that the location which TimeFormat used. It uses time.Local if empty.
 	TimeLocation *time.Location
 
 	// Context specifies an optional context of logger.
@@ -245,7 +241,7 @@ func Panic() (e *Entry) {
 }
 
 // Printf sends a log entry without extra field. Arguments are handled in the manner of fmt.Printf.
-func Printf(format string, v ...interface{}) {
+func Printf(format string, v ...any) {
 	e := DefaultLogger.header(noLevel)
 	if caller, full := DefaultLogger.Caller, false; caller != 0 {
 		if caller < 0 {
@@ -430,7 +426,7 @@ func (l *Logger) SetLevel(level Level) {
 }
 
 // Printf sends a log entry without extra field. Arguments are handled in the manner of fmt.Printf.
-func (l *Logger) Printf(format string, v ...interface{}) {
+func (l *Logger) Printf(format string, v ...any) {
 	e := l.header(noLevel)
 	if e != nil {
 		if caller, full := l.Caller, false; caller != 0 {
@@ -445,7 +441,7 @@ func (l *Logger) Printf(format string, v ...interface{}) {
 }
 
 var epool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &Entry{
 			buf: make([]byte, 0, 1024),
 		}
@@ -705,11 +701,12 @@ func (e *Entry) WithContext(ctx context.Context) *Entry {
 	return e
 }
 
-// Time append t formatted as string using time.RFC3339Nano.
+// Time append append t formated as string using time.RFC3339Nano.
 func (e *Entry) Time(key string, t time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -718,11 +715,12 @@ func (e *Entry) Time(key string, t time.Time) *Entry {
 	return e
 }
 
-// TimeFormat append t formatted as string using timefmt.
+// TimeFormat append append t formated as string using timefmt.
 func (e *Entry) TimeFormat(key string, timefmt string, t time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -743,11 +741,12 @@ func (e *Entry) TimeFormat(key string, timefmt string, t time.Time) *Entry {
 	return e
 }
 
-// Times append a formatted as string array using time.RFC3339Nano.
+// Times append append a formated as string array using time.RFC3339Nano.
 func (e *Entry) Times(key string, a []time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -764,11 +763,12 @@ func (e *Entry) Times(key string, a []time.Time) *Entry {
 	return e
 }
 
-// TimesFormat append a formatted as string array using timefmt.
+// TimesFormat append append a formated as string array using timefmt.
 func (e *Entry) TimesFormat(key string, timefmt string, a []time.Time) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -796,11 +796,12 @@ func (e *Entry) TimesFormat(key string, timefmt string, a []time.Time) *Entry {
 	return e
 }
 
-// Bool append the val as a bool to the entry.
+// Bool append append the val as a bool to the entry.
 func (e *Entry) Bool(key string, b bool) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -813,6 +814,7 @@ func (e *Entry) Bools(key string, b []bool) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -831,6 +833,7 @@ func (e *Entry) Dur(key string, d time.Duration) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -863,8 +866,9 @@ func (e *Entry) Dur(key string, d time.Duration) *Entry {
 // Duration format follows the same principle as Dur().
 func (e *Entry) TimeDiff(key string, t time.Time, start time.Time) *Entry {
 	if e == nil {
-		return e
+		return nil
 	}
+
 	var d time.Duration
 	if t.After(start) {
 		d = t.Sub(start)
@@ -897,6 +901,7 @@ func (e *Entry) Durs(key string, d []time.Duration) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1021,6 +1026,7 @@ func (e *Entry) Float64(key string, f float64) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1033,6 +1039,7 @@ func (e *Entry) Float32(key string, f float32) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1045,6 +1052,7 @@ func (e *Entry) Floats64(key string, f []float64) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1063,6 +1071,7 @@ func (e *Entry) Floats32(key string, f []float32) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1081,6 +1090,7 @@ func (e *Entry) Int64(key string, i int64) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1093,6 +1103,7 @@ func (e *Entry) Uint(key string, i uint) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1105,6 +1116,7 @@ func (e *Entry) Uint64(key string, i uint64) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1114,37 +1126,93 @@ func (e *Entry) Uint64(key string, i uint64) *Entry {
 
 // Int adds the field key with i as a int to the entry.
 func (e *Entry) Int(key string, i int) *Entry {
-	return e.Int64(key, int64(i))
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendInt(e.buf, int64(i), 10)
+	return e
 }
 
 // Int32 adds the field key with i as a int32 to the entry.
 func (e *Entry) Int32(key string, i int32) *Entry {
-	return e.Int64(key, int64(i))
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendInt(e.buf, int64(i), 10)
+	return e
 }
 
 // Int16 adds the field key with i as a int16 to the entry.
 func (e *Entry) Int16(key string, i int16) *Entry {
-	return e.Int64(key, int64(i))
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendInt(e.buf, int64(i), 10)
+	return e
 }
 
 // Int8 adds the field key with i as a int8 to the entry.
 func (e *Entry) Int8(key string, i int8) *Entry {
-	return e.Int64(key, int64(i))
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendInt(e.buf, int64(i), 10)
+	return e
 }
 
 // Uint32 adds the field key with i as a uint32 to the entry.
 func (e *Entry) Uint32(key string, i uint32) *Entry {
-	return e.Uint64(key, uint64(i))
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendUint(e.buf, uint64(i), 10)
+	return e
 }
 
 // Uint16 adds the field key with i as a uint16 to the entry.
 func (e *Entry) Uint16(key string, i uint16) *Entry {
-	return e.Uint64(key, uint64(i))
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendUint(e.buf, uint64(i), 10)
+	return e
 }
 
 // Uint8 adds the field key with i as a uint8 to the entry.
 func (e *Entry) Uint8(key string, i uint8) *Entry {
-	return e.Uint64(key, uint64(i))
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':')
+	e.buf = strconv.AppendUint(e.buf, uint64(i), 10)
+	return e
 }
 
 // Ints64 adds the field key with i as a []int64 to the entry.
@@ -1152,6 +1220,7 @@ func (e *Entry) Ints64(key string, a []int64) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1170,6 +1239,7 @@ func (e *Entry) Ints32(key string, a []int32) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1188,6 +1258,7 @@ func (e *Entry) Ints16(key string, a []int16) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1206,6 +1277,7 @@ func (e *Entry) Ints8(key string, a []int8) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1224,6 +1296,7 @@ func (e *Entry) Ints(key string, a []int) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1242,6 +1315,7 @@ func (e *Entry) Uints64(key string, a []uint64) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1260,6 +1334,7 @@ func (e *Entry) Uints32(key string, a []uint32) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1278,6 +1353,7 @@ func (e *Entry) Uints16(key string, a []uint16) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1296,6 +1372,7 @@ func (e *Entry) Uints8(key string, a []uint8) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1314,6 +1391,7 @@ func (e *Entry) Uints(key string, a []uint) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1332,6 +1410,7 @@ func (e *Entry) RawJSON(key string, b []byte) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1344,6 +1423,7 @@ func (e *Entry) RawJSONStr(key string, s string) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1356,6 +1436,7 @@ func (e *Entry) Str(key string, val string) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1369,6 +1450,7 @@ func (e *Entry) StrInt(key string, val int64) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1382,6 +1464,7 @@ func (e *Entry) Stringer(key string, val fmt.Stringer) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1400,6 +1483,7 @@ func (e *Entry) GoStringer(key string, val fmt.GoStringer) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1418,6 +1502,7 @@ func (e *Entry) Strs(key string, vals []string) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '[')
@@ -1438,6 +1523,7 @@ func (e *Entry) Byte(key string, val byte) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1473,6 +1559,7 @@ func (e *Entry) Bytes(key string, val []byte) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1486,6 +1573,7 @@ func (e *Entry) BytesOrNil(key string, val []byte) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':')
@@ -1506,6 +1594,7 @@ func (e *Entry) Hex(key string, val []byte) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1523,6 +1612,7 @@ func (e *Entry) Encode(key string, val []byte, enc interface {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1532,14 +1622,15 @@ func (e *Entry) Encode(key string, val []byte, enc interface {
 }
 
 // Xid adds the field key with xid.ID as a base32 string to the entry.
-func (e *Entry) Xid(key string, id int64) *Entry {
+func (e *Entry) Xid(key string, id string) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
-	e.buf = append(e.buf, (ID(id)).String()...)
+	e.buf = append(e.buf, []byte(id)...)
 	e.buf = append(e.buf, '"')
 
 	return e
@@ -1550,6 +1641,7 @@ func (e *Entry) IPAddr(key string, ip net.IP) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1574,6 +1666,7 @@ func (e *Entry) IPPrefix(key string, pfx net.IPNet) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1587,6 +1680,7 @@ func (e *Entry) MACAddr(key string, ha net.HardwareAddr) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1606,6 +1700,7 @@ func (e *Entry) NetIPAddr(key string, ip netip.Addr) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1619,6 +1714,7 @@ func (e *Entry) NetIPAddrPort(key string, ipPort netip.AddrPort) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1632,6 +1728,7 @@ func (e *Entry) NetIPPrefix(key string, pfx netip.Prefix) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1641,10 +1738,11 @@ func (e *Entry) NetIPPrefix(key string, pfx netip.Prefix) *Entry {
 }
 
 // Type adds type of the key using reflection to the entry.
-func (e *Entry) Type(key string, v interface{}) *Entry {
+func (e *Entry) Type(key string, v any) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '"')
@@ -1656,24 +1754,28 @@ func (e *Entry) Type(key string, v interface{}) *Entry {
 // Caller adds the file:line of the "caller" key.
 // If depth is negative, adds the full /path/to/file:line of the "caller" key.
 func (e *Entry) Caller(depth int) *Entry {
-	if e != nil {
-		var full bool
-		var pc uintptr
-		if depth < 0 {
-			depth, full = -depth, true
-		}
-		e.caller(caller1(depth, &pc, 1, 1), pc, full)
+	if e == nil {
+		return nil
 	}
+
+	var full bool
+	var pc uintptr
+	if depth < 0 {
+		depth, full = -depth, true
+	}
+	e.caller(caller1(depth, &pc, 1, 1), pc, full)
 	return e
 }
 
 // Stack enables stack trace printing for the error passed to Err().
 func (e *Entry) Stack() *Entry {
-	if e != nil {
-		e.buf = append(e.buf, ",\"stack\":\""...)
-		e.bytes(stacks(false))
-		e.buf = append(e.buf, '"')
+	if e == nil {
+		return nil
 	}
+
+	e.buf = append(e.buf, ",\"stack\":\""...)
+	e.bytes(stacks(false))
+	e.buf = append(e.buf, '"')
 	return e
 }
 
@@ -1687,6 +1789,7 @@ func (e *Entry) Discard() *Entry {
 	if e == nil {
 		return e
 	}
+
 	if cap(e.buf) <= bbcap {
 		epool.Put(e)
 	}
@@ -1702,16 +1805,16 @@ func (e *Entry) Msg(msg string) {
 	}
 	if DefaultLogger.EnableTracing {
 		if e.context == nil {
-			e.Str(DefaultLogger.TraceIDField, NewID().String())
+			e.Str(DefaultLogger.TraceIDField, xid.New().String())
 		} else {
 			traceID := e.context.Value(DefaultLogger.TraceIDField)
 			if traceID == nil {
-				e.Str(DefaultLogger.TraceIDField, NewID().String())
+				e.Str(DefaultLogger.TraceIDField, xid.New().String())
 			} else {
 				switch v := traceID.(type) {
 				case string:
 					if v == "" {
-						e.Str(DefaultLogger.TraceIDField, NewID().String())
+						e.Str(DefaultLogger.TraceIDField, xid.New().String())
 					} else {
 						e.Str(DefaultLogger.TraceIDField, v)
 					}
@@ -1720,10 +1823,6 @@ func (e *Entry) Msg(msg string) {
 				}
 			}
 		}
-	}
-	if DefaultLogger.LogNode {
-		hostname, _ := fqdn.Hostname()
-		e.Str("host_platform", hostname)
 	}
 	if msg != "" {
 		e.buf = append(e.buf, ",\"message\":\""...)
@@ -1754,7 +1853,7 @@ func (b *bb) Write(p []byte) (int, error) {
 }
 
 var bbpool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return new(bb)
 	},
 }
@@ -1765,7 +1864,6 @@ func (e *Entry) Copy() Logger {
 	}
 	if e.logger != nil {
 		logger.TimeField = e.logger.TimeField
-		logger.LogNode = e.logger.LogNode
 		logger.EnableTracing = e.logger.EnableTracing
 		logger.TraceIDField = e.logger.TraceIDField
 		logger.Caller = e.logger.Caller
@@ -1778,10 +1876,11 @@ func (e *Entry) Copy() Logger {
 }
 
 // Msgf sends the entry with formatted msg added as the message field if not empty.
-func (e *Entry) Msgf(format string, v ...interface{}) {
+func (e *Entry) Msgf(format string, v ...any) {
 	if e == nil {
 		return
 	}
+
 	b := bbpool.Get().(*bb)
 	b.B = b.B[:0]
 	e.buf = append(e.buf, ",\"message\":\""...)
@@ -1795,10 +1894,11 @@ func (e *Entry) Msgf(format string, v ...interface{}) {
 }
 
 // Msgs sends the entry with msgs added as the message field if not empty.
-func (e *Entry) Msgs(args ...interface{}) {
+func (e *Entry) Msgs(args ...any) {
 	if e == nil {
 		return
 	}
+
 	b := bbpool.Get().(*bb)
 	b.B = b.B[:0]
 	e.buf = append(e.buf, ",\"message\":\""...)
@@ -1986,7 +2086,7 @@ func (e *Entry) bytes(b []byte) {
 }
 
 // Interface adds the field key with i marshaled using reflection.
-func (e *Entry) Interface(key string, i interface{}) *Entry {
+func (e *Entry) Interface(key string, i any) *Entry {
 	if e == nil {
 		return nil
 	}
@@ -1997,7 +2097,7 @@ func (e *Entry) Interface(key string, i interface{}) *Entry {
 
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
-	e.buf = append(e.buf, '"', ':', '"')
+	e.buf = append(e.buf, '"', ':')
 	b := bbpool.Get().(*bb)
 	b.B = b.B[:0]
 	enc := json.NewEncoder(b)
@@ -2005,14 +2105,13 @@ func (e *Entry) Interface(key string, i interface{}) *Entry {
 	err := enc.Encode(i)
 	if err != nil {
 		b.B = b.B[:0]
-		fmt.Fprintf(b, "marshaling error: %+v", err)
+		fmt.Fprintf(b, `marshaling error: %+v`, err)
+		e.buf = append(e.buf, '"')
+		e.bytes(b.B)
+		e.buf = append(e.buf, '"')
 	} else {
 		b.B = b.B[:len(b.B)-1]
-	}
-	e.bytes(b.B)
-	e.buf = append(e.buf, '"')
-	if cap(b.B) <= bbcap {
-		bbpool.Put(b)
+		e.buf = append(e.buf, b.B...)
 	}
 
 	return e
@@ -2041,6 +2140,43 @@ func (e *Entry) Object(key string, obj ObjectMarshaler) *Entry {
 		e.buf = append(e.buf, "null"...)
 	}
 
+	return e
+}
+
+// Objects marshals a slice of objects that implement the ObjectMarshaler interface.
+func (e *Entry) Objects(key string, objects any) *Entry {
+	if e == nil {
+		return nil
+	}
+
+	values := reflect.ValueOf(objects)
+	if values.Kind() != reflect.Slice {
+		e.buf = append(e.buf, ',', '"')
+		e.buf = append(e.buf, key...)
+		e.buf = append(e.buf, `":null`...)
+		return e
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
+	for i := 0; i < values.Len(); i++ {
+		if i != 0 {
+			e.buf = append(e.buf, ',')
+		}
+		value := values.Index(i)
+		if value.Kind() == reflect.Ptr && value.IsNil() {
+			e.buf = append(e.buf, "null"...)
+		} else if obj, ok := value.Interface().(ObjectMarshaler); ok {
+			i := len(e.buf)
+			obj.MarshalObject(e)
+			e.buf[i] = '{'
+			e.buf = append(e.buf, '}')
+		} else {
+			e.buf = append(e.buf, `null`...)
+		}
+	}
+	e.buf = append(e.buf, ']')
 	return e
 }
 
@@ -2086,8 +2222,12 @@ func (e *Entry) Map(data any) *Entry {
 	return e
 }
 
-// Any adds the field key with f as an Any value to the entry.
-func (e *Entry) Any(key string, value interface{}) *Entry {
+// Any adds the field key with f as an any value to the entry.
+func (e *Entry) Any(key string, value any) *Entry {
+	if e == nil {
+		return nil
+	}
+
 	if value == nil || (*[2]uintptr)(unsafe.Pointer(&value))[1] == 0 {
 		e.buf = append(e.buf, ',', '"')
 		e.buf = append(e.buf, key...)
@@ -2193,10 +2333,11 @@ func (e *Entry) Any(key string, value interface{}) *Entry {
 }
 
 // KeysAndValues sends keysAndValues to Entry
-func (e *Entry) KeysAndValues(keysAndValues ...interface{}) *Entry {
+func (e *Entry) KeysAndValues(keysAndValues ...any) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	var key string
 	for i, v := range keysAndValues {
 		if i%2 == 0 {
@@ -2209,13 +2350,14 @@ func (e *Entry) KeysAndValues(keysAndValues ...interface{}) *Entry {
 }
 
 // Fields type, used to pass to `Fields`.
-type Fields map[string]interface{}
+type Fields map[string]any
 
 // Fields is a helper function to use a map to set fields using type assertion.
 func (e *Entry) Fields(fields Fields) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	for key, value := range fields {
 		e.Any(key, value)
 	}
@@ -2252,6 +2394,7 @@ func (e *Entry) Context(ctx Context) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	if len(ctx) != 0 {
 		e.buf = append(e.buf, ctx...)
 	}
@@ -2263,6 +2406,7 @@ func (e *Entry) Dict(key string, ctx Context) *Entry {
 	if e == nil {
 		return nil
 	}
+
 	e.buf = append(e.buf, ',', '"')
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, '"', ':', '{')
@@ -2293,7 +2437,7 @@ func stacks(all bool) (trace []byte) {
 }
 
 // wlprintf is a helper function for tests
-func wlprintf(w Writer, level Level, format string, args ...interface{}) (int, error) {
+func wlprintf(w Writer, level Level, format string, args ...any) (int, error) {
 	return w.WriteEntry(&Entry{
 		Level: level,
 		buf:   []byte(fmt.Sprintf(format, args...)),

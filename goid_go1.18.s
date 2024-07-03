@@ -1,5 +1,5 @@
-//go:build !go1.23
-// +build !go1.23
+//go:build go1.18 && !go1.23
+// +build go1.18,!go1.23
 
 #include "textflag.h"
 
@@ -40,5 +40,13 @@ TEXT ·goid(SB),NOSPLIT,$0-4
 	MOVW g, R8
 	MOVW 80(R8), R7
 	MOVW R7, ret+0(FP)
+	RET
+#endif
+
+#ifdef GOARCH_riscv64
+TEXT ·goid(SB),NOSPLIT,$0-8
+	MOV g, X11
+	MOV 152(X11), X12
+	MOV X12, ret+0(FP)
 	RET
 #endif

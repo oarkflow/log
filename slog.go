@@ -1,5 +1,4 @@
 //go:build go1.21
-// +build go1.21
 
 package log
 
@@ -32,11 +31,12 @@ func slogJSONAttrEval(e *Entry, a slog.Attr) *Entry {
 	case slog.KindDuration:
 		return e.Int64(a.Key, int64(value.Duration()))
 	case slog.KindGroup:
-		if len(value.Group()) == 0 {
+		attrs := value.Group()
+		if len(attrs) == 0 {
 			return e
 		}
 		if a.Key == "" {
-			for _, attr := range value.Group() {
+			for _, attr := range attrs {
 				e = slogJSONAttrEval(e, attr)
 			}
 			return e
@@ -45,7 +45,7 @@ func slogJSONAttrEval(e *Entry, a slog.Attr) *Entry {
 		e.buf = append(e.buf, a.Key...)
 		e.buf = append(e.buf, '"', ':')
 		i := len(e.buf)
-		for _, attr := range value.Group() {
+		for _, attr := range attrs {
 			e = slogJSONAttrEval(e, attr)
 		}
 		e.buf[i] = '{'
@@ -59,28 +59,20 @@ func slogJSONAttrEval(e *Entry, a slog.Attr) *Entry {
 }
 
 type slogJSONHandler struct {
-	writer   io.Writer
-	options  *slog.HandlerOptions
-	fallback slog.Handler
-
-	entry Entry
-
+	level    slog.Level
+	entry    Entry
 	grouping bool
 	groups   int
+
+	writer  io.Writer
+	options *slog.HandlerOptions
 }
 
 func (h *slogJSONHandler) Enabled(_ context.Context, level slog.Level) bool {
-	if h.options.Level != nil {
-		return h.options.Level.Level() <= level
-	}
-	return slog.LevelInfo <= level
+	return h.level <= level
 }
 
 func (h slogJSONHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	if h.options.ReplaceAttr != nil {
-		h.fallback = h.fallback.WithAttrs(attrs)
-		return &h
-	}
 	if len(attrs) == 0 {
 		return &h
 	}
@@ -96,10 +88,6 @@ func (h slogJSONHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 }
 
 func (h slogJSONHandler) WithGroup(name string) slog.Handler {
-	if h.options.ReplaceAttr != nil {
-		h.fallback = h.fallback.WithGroup(name)
-		return &h
-	}
 	if name == "" {
 		return &h
 	}
@@ -116,14 +104,7 @@ func (h slogJSONHandler) WithGroup(name string) slog.Handler {
 	return &h
 }
 
-func (h *slogJSONHandler) Handle(ctx context.Context, r slog.Record) error {
-	if h.options.ReplaceAttr != nil {
-		return h.fallback.Handle(ctx, r)
-	}
-	return h.handle(ctx, r)
-}
-
-func (h *slogJSONHandler) handle(_ context.Context, r slog.Record) error {
+func (h *slogJSONHandler) Handle(_ context.Context, r slog.Record) error {
 	e := epool.Get().(*Entry)
 	e.buf = e.buf[:0]
 
@@ -134,7 +115,84 @@ func (h *slogJSONHandler) handle(_ context.Context, r slog.Record) error {
 		e.buf = append(e.buf, '"')
 		e.buf = append(e.buf, slog.TimeKey...)
 		e.buf = append(e.buf, `":"`...)
-		e.buf = r.Time.AppendFormat(e.buf, time.RFC3339Nano)
+		if timeOffset == 0 || r.Time.Location() == time.Local {
+			sec, nsec := r.Time.Unix(), r.Time.Nanosecond()
+			var tmp [35]byte
+			var buf []byte
+			if timeOffset == 0 {
+				// 2006-01-02T15:04:05.999Z
+				tmp[29] = 'Z'
+				buf = tmp[:30]
+			} else {
+				// 2006-01-02T15:04:05.999999999Z07:00
+				tmp[34] = timeZone[5]
+				tmp[33] = timeZone[4]
+				tmp[32] = timeZone[3]
+				tmp[31] = timeZone[2]
+				tmp[30] = timeZone[1]
+				tmp[29] = timeZone[0]
+				buf = tmp[:35]
+			}
+			// date time
+			sec += 9223372028715321600 + timeOffset // unixToInternal + internalToAbsolute + timeOffset
+			year, month, day, _ := absDate(uint64(sec), true)
+			hour, minute, second := absClock(uint64(sec))
+			// year
+			a := year / 100 * 2
+			b := year % 100 * 2
+			tmp[0] = smallsString[a]
+			tmp[1] = smallsString[a+1]
+			tmp[2] = smallsString[b]
+			tmp[3] = smallsString[b+1]
+			// month
+			month *= 2
+			tmp[4] = '-'
+			tmp[5] = smallsString[month]
+			tmp[6] = smallsString[month+1]
+			// day
+			day *= 2
+			tmp[7] = '-'
+			tmp[8] = smallsString[day]
+			tmp[9] = smallsString[day+1]
+			// hour
+			hour *= 2
+			tmp[10] = 'T'
+			tmp[11] = smallsString[hour]
+			tmp[12] = smallsString[hour+1]
+			// minute
+			minute *= 2
+			tmp[13] = ':'
+			tmp[14] = smallsString[minute]
+			tmp[15] = smallsString[minute+1]
+			// second
+			second *= 2
+			tmp[16] = ':'
+			tmp[17] = smallsString[second]
+			tmp[18] = smallsString[second+1]
+			tmp[19] = '.'
+			// nano seconds
+			a = int(nsec)
+			b = a % 100 * 2
+			a /= 100
+			tmp[28] = smallsString[b+1]
+			tmp[27] = smallsString[b]
+			b = a % 100 * 2
+			a /= 100
+			tmp[26] = smallsString[b+1]
+			tmp[25] = smallsString[b]
+			b = a % 100 * 2
+			a /= 100
+			tmp[24] = smallsString[b+1]
+			tmp[23] = smallsString[b]
+			b = a % 100 * 2
+			tmp[22] = smallsString[b+1]
+			tmp[21] = smallsString[b]
+			tmp[20] = byte('0' + a/100)
+			// append to e.buf
+			e.buf = append(e.buf, buf...)
+		} else {
+			e.buf = r.Time.AppendFormat(e.buf, time.RFC3339Nano)
+		}
 		e.buf = append(e.buf, `",`...)
 	}
 
@@ -157,8 +215,8 @@ func (h *slogJSONHandler) handle(_ context.Context, r slog.Record) error {
 	}
 
 	// source
-	if h.options.AddSource && r.PC != 0 {
-		name, file, line := pcNameFileLine(r.PC)
+	if h.options != nil && h.options.AddSource && r.PC != 0 {
+		file, line, name := pcFileLineName(r.PC)
 		e.buf = append(e.buf, ',', '"')
 		e.buf = append(e.buf, slog.SourceKey...)
 		e.buf = append(e.buf, `":{"function":"`...)
@@ -185,6 +243,7 @@ func (h *slogJSONHandler) handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 
+	// rollback helper
 	lastindex := func(buf []byte) int {
 		for i := len(buf) - 3; i >= 1; i-- {
 			if buf[i] == '"' && (buf[i-1] == ',' || buf[i-1] == '{') {
@@ -240,15 +299,52 @@ func (h *slogJSONHandler) handle(_ context.Context, r slog.Record) error {
 	return err
 }
 
+type slogLevelvarHandler struct {
+	handler slog.Handler
+	level   slog.Leveler
+}
+
+func (h *slogLevelvarHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return h.level.Level() <= level
+}
+
+func (h slogLevelvarHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	h.handler = h.handler.WithAttrs(attrs)
+	return &h
+}
+
+func (h slogLevelvarHandler) WithGroup(name string) slog.Handler {
+	h.handler = h.handler.WithGroup(name)
+	return &h
+}
+
+func (h *slogLevelvarHandler) Handle(ctx context.Context, r slog.Record) error {
+	return h.handler.Handle(ctx, r)
+}
+
+// SlogNewJSONHandler returns a drop-in replacement of slog.NewJSONHandler.
 func SlogNewJSONHandler(writer io.Writer, options *slog.HandlerOptions) slog.Handler {
-	h := &slogJSONHandler{
-		writer:   writer,
-		options:  options,
-		fallback: slog.NewJSONHandler(writer, options),
-		entry:    *NewContext(nil),
+	if options != nil && options.ReplaceAttr != nil {
+		// TODO: implement ReplaceAttr in a new handler.
+		return slog.NewJSONHandler(writer, options)
 	}
-	if h.options == nil {
-		h.options = new(slog.HandlerOptions)
+
+	handler := &slogJSONHandler{
+		writer:  writer,
+		options: options,
 	}
-	return h
+
+	if handler.options == nil || handler.options.Level == nil {
+		return handler
+	}
+
+	if level, ok := handler.options.Level.(slog.Level); ok {
+		handler.level = level
+		return handler
+	}
+
+	return &slogLevelvarHandler{
+		handler: handler,
+		level:   handler.options.Level,
+	}
 }

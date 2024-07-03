@@ -8,16 +8,14 @@
 ## Features
 
 * Dependency Free
-* Simple and Clean Interface
+* Simple and Clean API
 * Consistent Writer
     - `IOWriter`, *io.Writer wrapper*
     - `ConsoleWriter`, *colorful & formatting*
     - `FileWriter`, *rotating & effective*
+    - `AsyncWriter`, *asynchronously & performant*
     - `MultiLevelWriter`, *multiple level dispatch*
     - `SyslogWriter`, *memory efficient syslog*
-    - `JournalWriter`, *linux systemd logging*
-    - `EventlogWriter`, *windows system event*
-    - `AsyncWriter`, *asynchronously writing*
 * Stdlib Log Adapter
     - `Logger.Std`, *transform to std log instances*
     - `Logger.Slog`, *transform to log/slog instances*
@@ -33,7 +31,8 @@
     - `NewXID()`, *create a tracing id*
     - `Fastrandn(n uint32)`, *fast pseudorandom uint32 in [0,n)*
     - `IsTerminal(fd uintptr)`, *isatty for golang*
-    - `Printf(fmt string, a ...interface{})`, *printf logging*
+    - `Printf(fmt string, a ...any)`, *printf logging*
+    - `SlogNewJSONHandler(io.Writer, *slog.HandlerOptions)`, *drop-in replacement of slog.JSONHandler*
 * High Performance
     - [Significantly faster][high-performance] than all other json loggers.
 
@@ -172,7 +171,7 @@ An out of box example. [![playground][play-simple-img]][play-simple]
 package main
 
 import (
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 func main() {
@@ -186,14 +185,14 @@ func main() {
 ```
 > Note: By default log writes to `os.Stderr`
 
-### Customize the configuration and formatting:
+### Customize the logger fields:
 
 To customize logger filed name and format. [![playground][play-customize-img]][play-customize]
 ```go
 package main
 
 import (
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 func main() {
@@ -276,7 +275,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 type Glog struct {
@@ -321,7 +320,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 func main() {
@@ -355,7 +354,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 	"github.com/robfig/cron/v3"
 )
 
@@ -394,7 +393,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 	"github.com/robfig/cron/v3"
 )
 
@@ -440,7 +439,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 	"github.com/robfig/cron/v3"
 )
 
@@ -475,6 +474,33 @@ func main() {
 	}
 }
 ```
+
+### Async File Writer
+
+For maximum write performance with asynchronous file logging, use `AsyncWriter`.
+
+```go
+logger := log.Logger{
+	Level: log.InfoLevel,
+	Writer: &log.AsyncWriter{
+		ChannelSize:   4096,
+		Writer:        &log.FileWriter{
+			Filename:   "main.log",
+			FileMode:   0600,
+			MaxSize:    50 * 1024 * 1024,
+			MaxBackups: 7,
+			LocalTime:  false,
+		},
+	},
+}
+
+logger.Info().Int("number", 42).Str("foo", "bar").Msg("a async info log")
+logger.Warn().Int("number", 42).Str("foo", "bar").Msg("a async warn log")
+logger.Writer.(io.Closer).Close()
+```
+*Highlights*:
+- To flush data and quit safely, call `.Close()` method explicitly.
+- Write performance improves up to 10x under high load with automatic `writev` enabling.
 
 ### Random Sample Logger:
 
@@ -536,7 +562,7 @@ To logging to different logger as you want, use below idiom. [![playground][play
 package main
 
 import (
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 var logger = struct {
@@ -590,7 +616,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 func main() {
@@ -654,32 +680,6 @@ log.DefaultLogger.Writer = &log.EventlogWriter{
 log.Info().Int("number", 42).Str("foo", "bar").Msg("hello world")
 ```
 
-### AsyncWriter
-
-To logging asynchronously for performance stability, use `AsyncWriter`.
-
-```go
-logger := log.Logger{
-	Level:  log.InfoLevel,
-	Writer: &log.AsyncWriter{
-		ChannelSize: 100,
-		Writer:      &log.FileWriter{
-			Filename:   "main.log",
-			FileMode:   0600,
-			MaxSize:    50*1024*1024,
-			MaxBackups: 7,
-			LocalTime:  false,
-		},
-	},
-}
-
-logger.Info().Int("number", 42).Str("foo", "bar").Msg("a async info log")
-logger.Warn().Int("number", 42).Str("foo", "bar").Msg("a async warn log")
-logger.Writer.(io.Closer).Close()
-```
-
-> Note: To flush data and quit safely, call `AsyncWriter.Close()` explicitly.
-
 ### Stdlib Log Adapter
 
 Using wrapped loggers for stdlog. [![playground][play-stdlog-img]][play-stdlog]
@@ -691,7 +691,7 @@ import (
 	stdlog "log"
 	"os"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 func main() {
@@ -720,7 +720,7 @@ package main
 import (
 	"log/slog"
 
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 func main() {
@@ -743,12 +743,12 @@ func main() {
 
 | Logger | Interceptor |
 |---|---|
-| logr |  https://github.com/phuslu/log-contrib/tree/master/logr |
-| gin |  https://github.com/phuslu/log-contrib/tree/master/gin |
-| fiber |  https://github.com/phuslu/log-contrib/tree/master/fiber |
-| gorm |  https://github.com/phuslu/log-contrib/tree/master/gorm |
-| grpc |  https://github.com/phuslu/log-contrib/tree/master/grpc |
-| grpcgateway |  https://github.com/phuslu/log-contrib/tree/master/grpcgateway |
+| logr |  https://github.com/oarkflow/log-contrib/tree/master/logr |
+| gin |  https://github.com/oarkflow/log-contrib/tree/master/gin |
+| fiber |  https://github.com/oarkflow/log-contrib/tree/master/fiber |
+| gorm |  https://github.com/oarkflow/log-contrib/tree/master/gorm |
+| grpc |  https://github.com/oarkflow/log-contrib/tree/master/grpc |
+| grpcgateway |  https://github.com/oarkflow/log-contrib/tree/master/grpcgateway |
 
 ### User-defined Data Structure
 
@@ -758,7 +758,7 @@ To log with user-defined struct effectively, implements `MarshalObject`. [![play
 package main
 
 import (
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 type User struct {
@@ -806,7 +806,7 @@ You can make a copy of log and add contextual fields. [![playground][play-contex
 package main
 
 import (
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 func main() {
@@ -829,7 +829,7 @@ func main() {
 ### High Performance
 
 <details>
-  <summary>The most common benchmarks(disable/normal/caller/printf/interface) against slog/zap/zerolog</summary>
+  <summary>The most common benchmarks(disabled/simple/caller/printf/any) against slog/zap/zerolog</summary>
 
 ```go
 // go test -v -cpu=4 -run=none -bench=. -benchtime=10s -benchmem bench_test.go
@@ -841,7 +841,7 @@ import (
 	"log/slog"
 	"testing"
 
-	phuslog "github.com/phuslu/log"
+	phuslog "github.com/oarkflow/log"
 	"github.com/rs/zerolog"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -850,14 +850,14 @@ import (
 const msg = "The quick brown fox jumps over the lazy dog"
 var obj = struct {Rate string; Low int; High float32}{"15", 16, 123.2}
 
-func BenchmarkSlogDisable(b *testing.B) {
+func BenchmarkSlogDisabled(b *testing.B) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	for i := 0; i < b.N; i++ {
 		logger.Debug(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogNormal(b *testing.B) {
+func BenchmarkSlogSimple(b *testing.B) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
@@ -878,14 +878,49 @@ func BenchmarkSlogCaller(b *testing.B) {
 	}
 }
 
-func BenchmarkSlogInterface(b *testing.B) {
+func BenchmarkSlogAny(b *testing.B) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	for i := 0; i < b.N; i++ {
-		logger.Info(msg, "object", &obj)
+		logger.Info(msg, "rate", "15", "low", 16, "object", &obj)
 	}
 }
 
-func BenchmarkZapDisable(b *testing.B) {
+func BenchmarkSlogPhusDisabled(b *testing.B) {
+	logger := slog.New(phuslog.SlogNewJSONHandler(io.Discard, nil))
+	for i := 0; i < b.N; i++ {
+		logger.Debug(msg, "rate", "15", "low", 16, "high", 123.2)
+	}
+}
+
+func BenchmarkSlogPhusSimple(b *testing.B) {
+	logger := slog.New(phuslog.SlogNewJSONHandler(io.Discard, nil))
+	for i := 0; i < b.N; i++ {
+		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
+	}
+}
+
+func BenchmarkSlogPhusPrintf(b *testing.B) {
+	slog.SetDefault(slog.New(phuslog.SlogNewJSONHandler(io.Discard, nil)))
+	for i := 0; i < b.N; i++ {
+		log.Printf("rate=%s low=%d high=%f msg=%s", "15", 16, 123.2, msg)
+	}
+}
+
+func BenchmarkSlogPhusCaller(b *testing.B) {
+	logger := slog.New(phuslog.SlogNewJSONHandler(io.Discard, &slog.HandlerOptions{AddSource: true}))
+	for i := 0; i < b.N; i++ {
+		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
+	}
+}
+
+func BenchmarkSlogPhusAny(b *testing.B) {
+	logger := slog.New(phuslog.SlogNewJSONHandler(io.Discard, nil))
+	for i := 0; i < b.N; i++ {
+		logger.Info(msg, "rate", "15", "low", 16, "object", &obj)
+	}
+}
+
+func BenchmarkZapDisabled(b *testing.B) {
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(io.Discard),
@@ -896,7 +931,7 @@ func BenchmarkZapDisable(b *testing.B) {
 	}
 }
 
-func BenchmarkZapNormal(b *testing.B) {
+func BenchmarkZapSimple(b *testing.B) {
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(io.Discard),
@@ -930,18 +965,18 @@ func BenchmarkZapCaller(b *testing.B) {
 	}
 }
 
-func BenchmarkZapInterface(b *testing.B) {
+func BenchmarkZapAny(b *testing.B) {
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(io.Discard),
 		zapcore.InfoLevel,
 	)).Sugar()
 	for i := 0; i < b.N; i++ {
-		logger.Infow(msg, "object", &obj)
+		logger.Infow(msg, "rate", "15", "low", 16, "object", &obj)
 	}
 }
 
-func BenchmarkZeroLogDisable(b *testing.B) {
+func BenchmarkZeroLogDisabled(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	logger := zerolog.New(io.Discard).With().Timestamp().Logger()
 	for i := 0; i < b.N; i++ {
@@ -949,7 +984,7 @@ func BenchmarkZeroLogDisable(b *testing.B) {
 	}
 }
 
-func BenchmarkZeroLogNormal(b *testing.B) {
+func BenchmarkZeroLogSimple(b *testing.B) {
 	logger := zerolog.New(io.Discard).With().Timestamp().Logger()
 	for i := 0; i < b.N; i++ {
 		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
@@ -970,21 +1005,21 @@ func BenchmarkZeroLogCaller(b *testing.B) {
 	}
 }
 
-func BenchmarkZeroLogInterface(b *testing.B) {
+func BenchmarkZeroLogAny(b *testing.B) {
 	logger := zerolog.New(io.Discard).With().Timestamp().Logger()
 	for i := 0; i < b.N; i++ {
-		logger.Info().Interface("object", &obj).Msg(msg)
+		logger.Info().Any("rate", "15").Any("low", 16).Any("object", &obj).Msg(msg)
 	}
 }
 
-func BenchmarkPhusLogDisable(b *testing.B) {
+func BenchmarkPhusLogDisabled(b *testing.B) {
 	logger := phuslog.Logger{Level: phuslog.InfoLevel, Writer: phuslog.IOWriter{io.Discard}}
 	for i := 0; i < b.N; i++ {
 		logger.Debug().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
 	}
 }
 
-func BenchmarkPhusLogNormal(b *testing.B) {
+func BenchmarkPhusLogSimple(b *testing.B) {
 	logger := phuslog.Logger{Writer: phuslog.IOWriter{io.Discard}}
 	for i := 0; i < b.N; i++ {
 		logger.Info().Str("rate", "15").Int("low", 16).Float32("high", 123.2).Msg(msg)
@@ -1005,10 +1040,10 @@ func BenchmarkPhusLogCaller(b *testing.B) {
 	}
 }
 
-func BenchmarkPhusLogInterface(b *testing.B) {
+func BenchmarkPhusLogAny(b *testing.B) {
 	logger := phuslog.Logger{Writer: phuslog.IOWriter{io.Discard}}
 	for i := 0; i < b.N; i++ {
-		logger.Info().Interface("object", &obj).Msg(msg)
+		logger.Info().Any("rate", "15").Any("low", 16).Any("object", &obj).Msg(msg)
 	}
 }
 ```
@@ -1021,32 +1056,32 @@ goos: linux
 goarch: amd64
 cpu: AMD EPYC 7763 64-Core Processor
 
-BenchmarkSlogDisable-4        	1000000000	         8.404 ns/op	       0 B/op	       0 allocs/op
-BenchmarkSlogNormal-4         	 9004674	      1332 ns/op	     120 B/op	       3 allocs/op
-BenchmarkSlogPrintf-4         	11932806	      1011 ns/op	      80 B/op	       1 allocs/op
-BenchmarkSlogCaller-4         	 5491897	      2184 ns/op	     688 B/op	       9 allocs/op
-BenchmarkSlogInterface-4      	 9200828	      1299 ns/op	     112 B/op	       2 allocs/op
+BenchmarkSlogDisabled-4      	715096197	         8.452 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlogSimple-4        	 4394904	      1367 ns/op	     120 B/op	       3 allocs/op
+BenchmarkSlogPrintf-4        	 5546492	      1053 ns/op	      80 B/op	       1 allocs/op
+BenchmarkSlogCaller-4        	 2708773	      2203 ns/op	     688 B/op	       9 allocs/op
+BenchmarkSlogAny-4           	 3936673	      1516 ns/op	     112 B/op	       2 allocs/op
 
-BenchmarkZapDisable-4         	1000000000	         8.099 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZapNormal-4          	13027324	       912.5 ns/op	     384 B/op	       1 allocs/op
-BenchmarkZapPrintf-4          	12789286	       949.7 ns/op	      80 B/op	       1 allocs/op
-BenchmarkZapCaller-4          	 7093309	      1681 ns/op	     632 B/op	       3 allocs/op
-BenchmarkZapInterface-4       	11350916	      1046 ns/op	     224 B/op	       2 allocs/op
+BenchmarkZapDisabled-4       	662012907	         9.076 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZapSimple-4         	 6586341	       926.9 ns/op	     384 B/op	       1 allocs/op
+BenchmarkZapPrintf-4         	 6375831	       951.9 ns/op	      80 B/op	       1 allocs/op
+BenchmarkZapCaller-4         	 3601339	      1673 ns/op	     632 B/op	       3 allocs/op
+BenchmarkZapAny-4            	 4649176	      1288 ns/op	     480 B/op	       2 allocs/op
 
-BenchmarkZeroLogDisable-4     	1000000000	         9.929 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZeroLogNormal-4      	36481122	       327.4 ns/op	       0 B/op	       0 allocs/op
-BenchmarkZeroLogPrintf-4      	17880010	       664.8 ns/op	      80 B/op	       1 allocs/op
-BenchmarkZeroLogCaller-4      	 9288362	      1293 ns/op	     304 B/op	       4 allocs/op
-BenchmarkZeroLogInterface-4   	19508446	       614.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkZeroLogDisabled-4   	606002878	         9.908 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZeroLogSimple-4     	18342879	       328.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkZeroLogPrintf-4     	 8904566	       669.6 ns/op	      80 B/op	       1 allocs/op
+BenchmarkZeroLogCaller-4     	 4687348	      1280 ns/op	     304 B/op	       4 allocs/op
+BenchmarkZeroLogAny-4        	 7031146	       851.2 ns/op	      64 B/op	       3 allocs/op
 
-BenchmarkPhusLogDisable-4     	1000000000	         9.610 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPhusLogNormal-4      	51244849	       236.8 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPhusLogPrintf-4      	23559231	       509.0 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPhusLogCaller-4      	23906091	       508.0 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPhusLogInterface-4   	21407361	       558.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLogDisabled-4   	624706401	         9.599 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLogSimple-4     	22249552	       243.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLogPrintf-4     	11471342	       524.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLogCaller-4     	12550828	       480.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkPhusLogAny-4        	11623692	       516.4 ns/op	       0 B/op	       0 allocs/op
 
 PASS
-ok  	bench	246.926s
+ok  	bench	139.331s
 ```
 
 <details>
@@ -1062,7 +1097,8 @@ import (
 	"testing"
 
 	"github.com/phsym/zeroslog"
-	phuslog "github.com/phuslu/log"
+	phuslog "github.com/oarkflow/log"
+	seankhliao "go.seankhliao.com/svcrunner/v3/jsonlog"
 	"go.uber.org/zap"
 	"go.uber.org/zap/exp/zapslog"
 	"go.uber.org/zap/zapcore"
@@ -1070,21 +1106,21 @@ import (
 
 const msg = "The quick brown fox jumps over the lazy dog"
 
-func BenchmarkSlogNormalStd(b *testing.B) {
+func BenchmarkSlogSimpleStd(b *testing.B) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogGroupStd(b *testing.B) {
+func BenchmarkSlogGroupsStd(b *testing.B) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil)).With("a", 1).WithGroup("g").With("b", 2)
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogNormalZap(b *testing.B) {
+func BenchmarkSlogSimpleZap(b *testing.B) {
 	logcore := zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(io.Discard),
@@ -1096,7 +1132,7 @@ func BenchmarkSlogNormalZap(b *testing.B) {
 	}
 }
 
-func BenchmarkSlogGroupZap(b *testing.B) {
+func BenchmarkSlogGroupsZap(b *testing.B) {
 	logcore := zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
 		zapcore.AddSync(io.Discard),
@@ -1108,42 +1144,56 @@ func BenchmarkSlogGroupZap(b *testing.B) {
 	}
 }
 
-func BenchmarkSlogNormalZerolog(b *testing.B) {
+func BenchmarkSlogSimpleZerolog(b *testing.B) {
 	logger := slog.New(zeroslog.NewJsonHandler(io.Discard, &zeroslog.HandlerOptions{Level: slog.LevelInfo}))
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogGroupZerolog(b *testing.B) {
+func BenchmarkSlogGroupsZerolog(b *testing.B) {
 	logger := slog.New(zeroslog.NewJsonHandler(io.Discard, &zeroslog.HandlerOptions{Level: slog.LevelInfo})).With("a", 1).WithGroup("g").With("b", 2)
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogNormalPhuslog(b *testing.B) {
+func BenchmarkSlogSimpleSeankhliao(b *testing.B) {
+	logger := slog.New(seankhliao.New(slog.LevelInfo, io.Discard))
+	for i := 0; i < b.N; i++ {
+		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
+	}
+}
+
+func BenchmarkSlogGroupsSeankhliao(b *testing.B) {
+	logger := slog.New(seankhliao.New(slog.LevelInfo, io.Discard)).With("a", 1).WithGroup("g").With("b", 2)
+	for i := 0; i < b.N; i++ {
+		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
+	}
+}
+
+func BenchmarkSlogSimplePhuslog(b *testing.B) {
 	logger := slog.New((&phuslog.Logger{Writer: phuslog.IOWriter{io.Discard}}).Slog().Handler())
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogGroupPhuslog(b *testing.B) {
+func BenchmarkSlogGroupsPhuslog(b *testing.B) {
 	logger := slog.New((&phuslog.Logger{Writer: phuslog.IOWriter{io.Discard}}).Slog().Handler()).With("a", 1).WithGroup("g").With("b", 2)
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogNormalPhuslogStd(b *testing.B) {
+func BenchmarkSlogSimplePhuslogStd(b *testing.B) {
 	logger := slog.New(phuslog.SlogNewJSONHandler(io.Discard, nil))
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
 	}
 }
 
-func BenchmarkSlogGroupPhuslogStd(b *testing.B) {
+func BenchmarkSlogGroupsPhuslogStd(b *testing.B) {
 	logger := slog.New(phuslog.SlogNewJSONHandler(io.Discard, nil)).With("a", 1).WithGroup("g").With("b", 2)
 	for i := 0; i < b.N; i++ {
 		logger.Info(msg, "rate", "15", "low", 16, "high", 123.2)
@@ -1157,25 +1207,25 @@ A Performance result as below, for daily benchmark results see [github actions][
 ```
 goos: linux
 goarch: amd64
-cpu: AMD EPYC 7763 64-Core Processor
+cpu: AMD EPYC 7763 64-Core Processor                
 
-BenchmarkSlogNormalStd        	 4408033	      1383 ns/op	     120 B/op	       3 allocs/op
-BenchmarkSlogGroupStd         	 4298301	      1398 ns/op	     120 B/op	       3 allocs/op
+BenchmarkSlogSimpleStd        	 4314817	      1413 ns/op	     120 B/op	       3 allocs/op
+BenchmarkSlogGroupsStd        	 4167734	      1462 ns/op	     120 B/op	       3 allocs/op
 
-BenchmarkSlogNormalZap        	 4753046	      1273 ns/op	     192 B/op	       1 allocs/op
-BenchmarkSlogGroupZap         	 4724052	      1257 ns/op	     192 B/op	       1 allocs/op
+BenchmarkSlogSimpleZap        	 4824007	      1245 ns/op	     192 B/op	       1 allocs/op
+BenchmarkSlogGroupsZap        	 4800220	      1256 ns/op	     192 B/op	       1 allocs/op
 
-BenchmarkSlogNormalZerolog    	 7548705	       789.2 ns/op	       0 B/op	       0 allocs/op
-BenchmarkSlogGroupZerolog     	 5592763	      1076 ns/op	     288 B/op	       1 allocs/op
+BenchmarkSlogSimpleZerolog    	 7713812	       783.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlogGroupsZerolog    	 5506782	      1089 ns/op	     288 B/op	       1 allocs/op
 
-BenchmarkSlogNormalPhuslog    	 8318289	       720.1 ns/op	       0 B/op	       0 allocs/op
-BenchmarkSlogGroupPhuslog     	 8175591	       737.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlogSimplePhuslog    	 8858504	       683.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlogGroupsPhuslog    	 8615334	       694.0 ns/op	       0 B/op	       0 allocs/op
 
-BenchmarkSlogNormalPhuslogStd 	 7978171	       755.0 ns/op	       0 B/op	       0 allocs/op
-BenchmarkSlogGroupPhuslogStd  	 7728466	       775.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlogSimplePhuslogStd 	 8889276	       666.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlogGroupsPhuslogStd 	 8849634	       683.3 ns/op	       0 B/op	       0 allocs/op
 
 PASS
-ok  	bench	70.366s
+ok  	bench	84.415s
 ```
 
 In summary, phuslog offers a blend of low latency, minimal memory usage, and efficient logging across various scenarios, making it an excellent option for high-performance logging in Go applications.
@@ -1194,7 +1244,7 @@ import (
 	"os"
 
 	"github.com/phuslu/iploc"
-	"github.com/phuslu/log"
+	"github.com/oarkflow/log"
 )
 
 type Config struct {
@@ -1301,13 +1351,13 @@ func main() {
 This log is heavily inspired by [zerolog][zerolog], [glog][glog], [gjson][gjson] and [lumberjack][lumberjack].
 
 [godoc-img]: http://img.shields.io/badge/godoc-reference-5272B4.svg
-[godoc]: https://pkg.go.dev/github.com/phuslu/log
-[report-img]: https://goreportcard.com/badge/github.com/phuslu/log
-[report]: https://goreportcard.com/report/github.com/phuslu/log
-[build-img]: https://github.com/phuslu/log/workflows/build/badge.svg
-[build]: https://github.com/phuslu/log/actions
+[godoc]: https://pkg.go.dev/github.com/oarkflow/log
+[report-img]: https://goreportcard.com/badge/github.com/oarkflow/log
+[report]: https://goreportcard.com/report/github.com/oarkflow/log
+[build-img]: https://github.com/oarkflow/log/workflows/build/badge.svg
+[build]: https://github.com/oarkflow/log/actions
 [stability-img]: https://img.shields.io/badge/stability-stable-green.svg
-[high-performance]: https://github.com/phuslu/log?tab=readme-ov-file#high-performance
+[high-performance]: https://github.com/oarkflow/log?tab=readme-ov-file#high-performance
 [play-simple-img]: https://img.shields.io/badge/playground-NGV25aBKmYH-29BEB0?style=flat&logo=go
 [play-simple]: https://go.dev/play/p/NGV25aBKmYH
 [play-customize-img]: https://img.shields.io/badge/playground-p9ZSSL4--IaK-29BEB0?style=flat&logo=go
@@ -1335,7 +1385,7 @@ This log is heavily inspired by [zerolog][zerolog], [glog][glog], [gjson][gjson]
 [play-stdlog-img]: https://img.shields.io/badge/playground-LU8vQruS7--S-29BEB0?style=flat&logo=go
 [play-slog]: https://go.dev/play/p/JW3Ts6FcB40
 [play-slog-img]: https://img.shields.io/badge/playground-JW3Ts6FcB40-29BEB0?style=flat&logo=go
-[benchmark]: https://github.com/phuslu/log/actions?query=workflow%3Abenchmark
+[benchmark]: https://github.com/oarkflow/log/actions?query=workflow%3Abenchmark
 [zerolog]: https://github.com/rs/zerolog
 [glog]: https://github.com/golang/glog
 [gjson]: https://github.com/tidwall/gjson
