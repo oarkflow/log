@@ -1,13 +1,17 @@
 package log
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net"
+	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"reflect"
 	"runtime"
@@ -20,6 +24,10 @@ import (
 
 	"github.com/oarkflow/xid"
 )
+
+type Client interface {
+	Do(req *http.Request) (*http.Response, error)
+}
 
 // DefaultLogger is the global logger.
 var DefaultLogger = Logger{
@@ -80,6 +88,84 @@ func (w IOWriteCloser) WriteEntry(e *Entry) (n int, err error) {
 // Close implements Writer.
 func (w IOWriteCloser) Close() (err error) {
 	return w.WriteCloser.Close()
+}
+
+type HTTPWriter struct {
+	URL         string
+	Method      string
+	Headers     map[string]string
+	QueryParams map[string]string
+	Client      Client
+}
+
+// WriteEntry sends the log entry as JSON data using the configured HTTP method,
+// headers, and query parameters. It includes timeout management and enhanced error reporting.
+func (w HTTPWriter) WriteEntry(e *Entry) (n int, err error) {
+	n = len(e.buf)
+	go func(e *Entry) {
+		client := w.Client
+		if client == nil {
+			client = http.DefaultClient
+		}
+		// Determine HTTP method, defaulting to POST.
+		method := w.Method
+		if method == "" {
+			method = "POST"
+		}
+
+		// Build URL with query parameters if provided.
+		urlStr := w.URL
+		if len(w.QueryParams) > 0 {
+			parsedURL, err := url.Parse(w.URL)
+			if err != nil {
+				log.Printf("HTTPWriter: invalid URL: %v", err)
+				return
+			}
+			query := parsedURL.Query()
+			for key, value := range w.QueryParams {
+				query.Set(key, value)
+			}
+			parsedURL.RawQuery = query.Encode()
+			urlStr = parsedURL.String()
+		}
+
+		// Create a new HTTP request with the log entry payload.
+		req, err := http.NewRequest(method, urlStr, bytes.NewReader(e.buf))
+		if err != nil {
+			log.Printf("HTTPWriter: error creating request: %v", err)
+			return
+		}
+
+		// Set default JSON header and any custom headers.
+		req.Header.Set("Content-Type", "application/json")
+		for key, value := range w.Headers {
+			req.Header.Set(key, value)
+		}
+
+		// Use a context with timeout to avoid blocking indefinitely.
+		ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
+		defer cancel()
+		req = req.WithContext(ctx)
+
+		// Execute the request.
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("HTTPWriter: error executing request: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Optionally read the response body for debugging.
+		body, _ := io.ReadAll(resp.Body)
+		log.Println("HTTPWriter response:", string(body))
+
+		// Check for non-successful status codes.
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			log.Printf("HTTPWriter: received status code %d: %s", resp.StatusCode, string(body))
+		}
+	}(e)
+
+	return n, nil
 }
 
 // ObjectMarshaler provides a strongly-typed and encoding-agnostic interface
@@ -1710,6 +1796,27 @@ func (e *Entry) NetIPAddr(key string, ip netip.Addr) *Entry {
 	return e
 }
 
+// NetIPAddrs adds IPv4 or IPv6 Addresses to the entry.
+func (e *Entry) NetIPAddrs(key string, ips []netip.Addr) *Entry {
+	if e == nil {
+		return nil
+	}
+
+	e.buf = append(e.buf, ',', '"')
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, '"', ':', '[')
+	for i, ip := range ips {
+		if i > 0 {
+			e.buf = append(e.buf, ',')
+		}
+		e.buf = append(e.buf, '"')
+		e.buf = ip.AppendTo(e.buf)
+		e.buf = append(e.buf, '"')
+	}
+	e.buf = append(e.buf, ']')
+	return e
+}
+
 // NetIPAddrPort adds IPv4 or IPv6 with Port Address to the entry.
 func (e *Entry) NetIPAddrPort(key string, ipPort netip.AddrPort) *Entry {
 	if e == nil {
@@ -2187,8 +2294,10 @@ func (e *Entry) Objects(key string, objects any) *Entry {
 }
 
 // Func allows an anonymous func to run only if the entry is enabled.
+//
+//go:nonline
 func (e *Entry) Func(f func(e *Entry)) *Entry {
-	if e != nil {
+	if e != nil && f != nil {
 		f(e)
 	}
 	return e

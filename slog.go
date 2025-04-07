@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -220,11 +221,16 @@ func (h *slogJSONHandler) Handle(_ context.Context, r slog.Record) error {
 		e.buf = append(e.buf, ',', '"')
 		e.buf = append(e.buf, slog.SourceKey...)
 		e.buf = append(e.buf, `":{"function":"`...)
+		if i := strings.LastIndexByte(name, '/'); i > 0 {
+			name = name[i+1:]
+		}
 		e.buf = append(e.buf, name...)
 		e.buf = append(e.buf, `","file":"`...)
 		e.buf = append(e.buf, file...)
 		e.buf = append(e.buf, `","line":`...)
 		e.buf = strconv.AppendInt(e.buf, int64(line), 10)
+		// e.buf = append(e.buf, `,"goid":`...)
+		// e.buf = strconv.AppendInt(e.buf, int64(goid()), 10)
 		e.buf = append(e.buf, '}')
 	}
 

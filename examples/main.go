@@ -1,28 +1,25 @@
 package main
 
 import (
-	"os"
-
 	"github.com/oarkflow/log"
 )
 
 func main() {
 	w := []log.Writer{
-		&log.ConsoleWriter{ColorOutput: true, EndWithMessage: true},
-		&log.IOWriter{Writer: os.Stdout},
+		&log.HTTPWriter{
+			URL: "http://localhost:3000/ingest/log",
+		},
 	}
 	writer := log.MultiEntryWriter(w)
 	logr := log.Logger{
-		Level:      log.InfoLevel,
-		Caller:     1,
-		TimeField:  "date",
-		TimeFormat: "2006-01-02",
-		Writer:     &writer,
+		Level:     log.InfoLevel,
+		Caller:    1,
+		TimeField: "timestamp",
+		Writer:    &writer,
 	}
-	logger := log.With(&logr).Str("attr1", "12").Copy()
-	logger2 := log.With(&logger).Str("attr2", "1245").Copy()
-	logger2.Info().Str("foo", "bar").Int("number", 42).Msg("hi, phuslog")
-	logger2.Error().Msgf("foo=%s number=%d error=%+v", "bar", 42, "an error")
+	logger := log.With(&logr).Str("resource", "pipelines").Copy()
+	logger2 := log.With(&logger).Str("action", "create").Copy()
+	logger2.Info().Str("loggable_type", "pipeline").Int("loggable_id", 42).Msg("Create pipeline")
 }
 
 // Output:
