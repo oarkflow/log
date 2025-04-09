@@ -23,6 +23,8 @@ import (
 	"unsafe"
 
 	"github.com/oarkflow/xid"
+
+	"github.com/oarkflow/log/fqdn"
 )
 
 type Client interface {
@@ -32,6 +34,7 @@ type Client interface {
 // DefaultLogger is the global logger.
 var DefaultLogger = Logger{
 	Level:         DebugLevel,
+	LogNode:       false,
 	EnableTracing: true,
 	TraceIDField:  "trace_id",
 	Caller:        0,
@@ -178,6 +181,8 @@ type ObjectMarshaler interface {
 type Logger struct {
 	// Level defines log levels.
 	Level Level
+
+	LogNode bool
 
 	EnableTracing bool
 
@@ -1932,6 +1937,10 @@ func (e *Entry) Msg(msg string) {
 			}
 		}
 	}
+	if DefaultLogger.LogNode {
+		hostname, _ := fqdn.Hostname()
+		e.Str("host_platform", hostname)
+	}
 	if msg != "" {
 		e.buf = append(e.buf, ",\"message\":\""...)
 		e.string(msg)
@@ -1972,6 +1981,7 @@ func (e *Entry) Copy() Logger {
 	}
 	if e.logger != nil {
 		logger.TimeField = e.logger.TimeField
+		logger.LogNode = e.logger.LogNode
 		logger.EnableTracing = e.logger.EnableTracing
 		logger.TraceIDField = e.logger.TraceIDField
 		logger.Caller = e.logger.Caller
