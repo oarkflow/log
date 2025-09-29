@@ -1,8 +1,12 @@
 package log
 
 import (
+	"bytes"
+	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
@@ -352,4 +356,444 @@ func jsonUnescape(json, str []byte) []byte {
 		}
 	}
 	return str
+}
+
+// Formatter defines an interface for formatting log entries
+type Formatter interface {
+	Format(entry *Entry) ([]byte, error)
+}
+
+// JSONFormatter formats entries as JSON
+type JSONFormatter struct{}
+
+// Format formats the entry as JSON
+func (f *JSONFormatter) Format(entry *Entry) ([]byte, error) {
+	// For JSON formatting, we can simply return the original buffer
+	// since it already contains valid JSON
+	if len(entry.buf) > 0 {
+		return entry.buf, nil
+	}
+
+	// Fallback: create a minimal JSON entry if buffer is empty
+	var buf bytes.Buffer
+	buf.WriteString(`{"time":"`)
+	buf.WriteString(time.Now().Format("2006-01-02T15:04:05.999Z07:00"))
+	buf.WriteString(`","level":"`)
+	switch entry.Level {
+	case DebugLevel:
+		buf.WriteString("debug")
+	case InfoLevel:
+		buf.WriteString("info")
+	case WarnLevel:
+		buf.WriteString("warn")
+	case ErrorLevel:
+		buf.WriteString("error")
+	case TraceLevel:
+		buf.WriteString("trace")
+	case FatalLevel:
+		buf.WriteString("fatal")
+	case PanicLevel:
+		buf.WriteString("panic")
+	default:
+		buf.WriteString("????")
+	}
+	buf.WriteString("\"}\n")
+	return buf.Bytes(), nil
+}
+
+// HumanReadableFormatter formats entries in a human-readable format
+type HumanReadableFormatter struct {
+	ShowTimestamp bool
+	ShowLevel     bool
+	ShowCaller    bool
+}
+
+// Format formats the entry in a human-readable way
+func (f *HumanReadableFormatter) Format(entry *Entry) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Add timestamp
+	if f.ShowTimestamp {
+		now := time.Now()
+		if entry.logger != nil && entry.logger.TimeLocation != nil {
+			buf.WriteString(now.In(entry.logger.TimeLocation).Format("2006-01-02 15:04:05"))
+		} else {
+			buf.WriteString(now.Format("2006-01-02 15:04:05"))
+		}
+		buf.WriteByte(' ')
+	}
+
+	// Add level
+	if f.ShowLevel {
+		switch entry.Level {
+		case DebugLevel:
+			buf.WriteString("[DEBUG] ")
+		case InfoLevel:
+			buf.WriteString("[INFO]  ")
+		case WarnLevel:
+			buf.WriteString("[WARN]  ")
+		case ErrorLevel:
+			buf.WriteString("[ERROR] ")
+		case TraceLevel:
+			buf.WriteString("[TRACE] ")
+		case FatalLevel:
+			buf.WriteString("[FATAL] ")
+		case PanicLevel:
+			buf.WriteString("[PANIC] ")
+		default:
+			buf.WriteString("[????]  ")
+		}
+	}
+
+	// Add caller information if available
+	if f.ShowCaller && entry.logger != nil && entry.logger.Caller > 0 {
+		// This would need to be extracted from the existing buffer
+		// For now, we'll skip this as it requires more complex parsing
+	}
+
+	// Add message
+	if len(entry.buf) > 0 {
+		// Extract message from JSON buffer (simplified)
+		msg := extractMessageFromBuffer(entry.buf)
+		buf.WriteString(msg)
+	}
+
+	// Add newline only if the last character is not already a newline
+	result := buf.Bytes()
+	if len(result) == 0 || result[len(result)-1] != '\n' {
+		buf.WriteByte('\n')
+	}
+
+	return buf.Bytes(), nil
+}
+
+// extractMessageFromBuffer extracts the message field from a JSON buffer
+func extractMessageFromBuffer(buf []byte) string {
+	jsonStr := string(buf)
+	if strings.Contains(jsonStr, `"message":`) {
+		// Find the message field
+		msgStart := strings.Index(jsonStr, `"message":`) + 10
+		if msgStart > 10 {
+			// Find the end of the message value
+			remaining := jsonStr[msgStart:]
+			if strings.HasPrefix(remaining, `"`) {
+				// Quoted message
+				msgEnd := strings.Index(remaining[1:], `"`) + 1
+				if msgEnd > 0 {
+					return remaining[1:msgEnd]
+				}
+			}
+		}
+	}
+	return jsonStr
+}
+
+// DefaultJSONFormatter is the default JSON formatter instance
+var DefaultJSONFormatter = &JSONFormatter{}
+
+// DefaultTemplateFormatter creates a template formatter with the given pattern
+func DefaultTemplateFormatter(pattern string) *TemplateFormatter {
+	return &TemplateFormatter{Pattern: pattern}
+}
+
+// TemplateFormatter formats entries using a template pattern with conditional support
+type TemplateFormatter struct {
+	Pattern string
+}
+
+// Format formats the entry using the template pattern
+func (f *TemplateFormatter) Format(entry *Entry) ([]byte, error) {
+	var buf bytes.Buffer
+	pattern := f.Pattern
+	i := 0
+
+	for i < len(pattern) {
+		if pattern[i] == '{' && i+1 < len(pattern) && pattern[i+1] == '{' {
+			i += 2
+			start := i
+
+			// Check for conditional syntax
+			if i+3 < len(pattern) && pattern[i:i+3] == "if " {
+				i += 3
+				condStart := i
+
+				// Find the end of the condition
+				for i < len(pattern) && !(pattern[i] == '}' && i+1 < len(pattern) && pattern[i+1] == '}') {
+					i++
+				}
+
+				if i >= len(pattern) {
+					return nil, fmt.Errorf("unclosed conditional statement")
+				}
+
+				condition := pattern[condStart:i]
+				i += 2 // Skip }}
+
+				// Parse condition and content
+				content, endPos := f.parseConditional(pattern, i, condition, entry)
+				buf.WriteString(content)
+				i = endPos
+			} else {
+				// Regular template variable
+				for i < len(pattern) && !(pattern[i] == '}' && i+1 < len(pattern) && pattern[i+1] == '}') {
+					i++
+				}
+
+				if i >= len(pattern) {
+					return nil, fmt.Errorf("unclosed template variable")
+				}
+
+				varName := pattern[start:i]
+				i += 2 // Skip }}
+
+				value := f.getTemplateValue(varName, entry)
+				buf.WriteString(value)
+			}
+		} else {
+			buf.WriteByte(pattern[i])
+			i++
+		}
+	}
+
+	buf.WriteByte('\n')
+	return buf.Bytes(), nil
+}
+
+// parseConditional parses conditional statements like {{if err}}...{{end}}
+func (f *TemplateFormatter) parseConditional(pattern string, start int, condition string, entry *Entry) (string, int) {
+	var buf bytes.Buffer
+	i := start
+
+	// Find the {{end}}
+	for i < len(pattern) {
+		if pattern[i] == '{' && i+1 < len(pattern) && pattern[i+1] == '{' &&
+			i+2 < len(pattern) && pattern[i+2] == 'e' && i+3 < len(pattern) && pattern[i+3] == 'n' &&
+			i+4 < len(pattern) && pattern[i+4] == 'd' && i+5 < len(pattern) && pattern[i+5] == '}' &&
+			i+6 < len(pattern) && pattern[i+6] == '}' {
+			// Found {{end}}
+			i += 7
+			break
+		}
+
+		if pattern[i] == '{' && i+1 < len(pattern) && pattern[i+1] == '{' {
+			// Nested template variable
+			i += 2
+			nestedStart := i
+			for i < len(pattern) && !(pattern[i] == '}' && i+1 < len(pattern) && pattern[i+1] == '}') {
+				i++
+			}
+			if i < len(pattern) {
+				varName := pattern[nestedStart:i]
+				i += 2
+				value := f.getTemplateValue(varName, entry)
+				buf.WriteString(value)
+			}
+		} else {
+			buf.WriteByte(pattern[i])
+			i++
+		}
+	}
+
+	// Check condition
+	shouldInclude := f.evaluateCondition(condition, entry)
+
+	if shouldInclude {
+		return buf.String(), i
+	}
+	return "", i
+}
+
+// evaluateCondition evaluates a conditional expression
+func (f *TemplateFormatter) evaluateCondition(condition string, entry *Entry) bool {
+	switch condition {
+	case "err", "error":
+		return f.hasError(entry)
+	default:
+		return false
+	}
+}
+
+// hasError checks if the entry has a non-empty error field
+func (f *TemplateFormatter) hasError(entry *Entry) bool {
+	if len(entry.buf) == 0 {
+		return false
+	}
+
+	jsonStr := string(entry.buf)
+	// Find the error field in JSON
+	errorPattern := `"error":`
+	errorIndex := strings.Index(jsonStr, errorPattern)
+	if errorIndex == -1 {
+		return false
+	}
+
+	// Look for the value after "error":
+	valueStart := errorIndex + len(errorPattern)
+
+	// Skip whitespace
+	for valueStart < len(jsonStr) && (jsonStr[valueStart] == ' ' || jsonStr[valueStart] == '\t') {
+		valueStart++
+	}
+
+	if valueStart >= len(jsonStr) {
+		return false
+	}
+
+	// Check the value type and content
+	switch jsonStr[valueStart] {
+	case '"':
+		// String value - find the end quote
+		valueStart++ // Skip opening quote
+		endQuote := strings.Index(jsonStr[valueStart:], `"`)
+		if endQuote == -1 {
+			return false
+		}
+		errorValue := jsonStr[valueStart : valueStart+endQuote]
+		return errorValue != ""
+	case 'n':
+		// null value
+		return !strings.HasPrefix(jsonStr[valueStart:], "null")
+	case 't', 'f':
+		// boolean value - true means there is an error
+		return strings.HasPrefix(jsonStr[valueStart:], "true")
+	default:
+		// Number or other value - consider non-zero as error
+		return true
+	}
+}
+
+// extractErrorValue extracts the error value from JSON buffer
+func (f *TemplateFormatter) extractErrorValue(buf []byte) string {
+	if len(buf) == 0 {
+		return ""
+	}
+
+	jsonStr := string(buf)
+	// Find the error field in JSON
+	errorPattern := `"error":`
+	errorIndex := strings.Index(jsonStr, errorPattern)
+	if errorIndex == -1 {
+		return ""
+	}
+
+	// Look for the value after "error":
+	valueStart := errorIndex + len(errorPattern)
+
+	// Skip whitespace
+	for valueStart < len(jsonStr) && (jsonStr[valueStart] == ' ' || jsonStr[valueStart] == '\t') {
+		valueStart++
+	}
+
+	if valueStart >= len(jsonStr) {
+		return ""
+	}
+
+	// Extract the value based on its type
+	switch jsonStr[valueStart] {
+	case '"':
+		// String value - find the end quote
+		valueStart++ // Skip opening quote
+		endQuote := strings.Index(jsonStr[valueStart:], `"`)
+		if endQuote == -1 {
+			return ""
+		}
+		return jsonStr[valueStart : valueStart+endQuote]
+	case 'n':
+		// null value
+		if strings.HasPrefix(jsonStr[valueStart:], "null") {
+			return ""
+		}
+		return "null"
+	case 't':
+		// boolean true
+		if strings.HasPrefix(jsonStr[valueStart:], "true") {
+			return "true"
+		}
+		return ""
+	case 'f':
+		// boolean false
+		if strings.HasPrefix(jsonStr[valueStart:], "false") {
+			return "false"
+		}
+		return ""
+	default:
+		// Number or other value - extract until next comma, whitespace, or end
+		endPos := valueStart
+		for endPos < len(jsonStr) && jsonStr[endPos] != ',' && jsonStr[endPos] != ' ' &&
+			jsonStr[endPos] != '\t' && jsonStr[endPos] != '\n' && jsonStr[endPos] != '\r' {
+			// Handle nested objects/arrays (simple case)
+			if jsonStr[endPos] == '{' || jsonStr[endPos] == '[' {
+				// For simplicity, just take until the next comma
+				break
+			}
+			endPos++
+		}
+		if endPos > valueStart {
+			return jsonStr[valueStart:endPos]
+		}
+		return ""
+	}
+}
+
+// getTemplateValue returns the value for a template variable
+func (f *TemplateFormatter) getTemplateValue(varName string, entry *Entry) string {
+	switch varName {
+	case "msg", "message":
+		// Extract message from the JSON buffer
+		return extractMessageFromBuffer(entry.buf)
+	case "level":
+		switch entry.Level {
+		case DebugLevel:
+			return "DEBUG"
+		case InfoLevel:
+			return "INFO"
+		case WarnLevel:
+			return "WARN"
+		case ErrorLevel:
+			return "ERROR"
+		case TraceLevel:
+			return "TRACE"
+		case FatalLevel:
+			return "FATAL"
+		case PanicLevel:
+			return "PANIC"
+		default:
+			return "????"
+		}
+	case "time":
+		now := time.Now()
+		if entry.logger != nil && entry.logger.TimeLocation != nil {
+			return now.In(entry.logger.TimeLocation).Format("2006-01-02 15:04:05")
+		}
+		return now.Format("2006-01-02 15:04:05")
+	case "caller":
+		// Extract caller from the JSON buffer
+		jsonStr := string(entry.buf)
+		if strings.Contains(jsonStr, `"caller":`) {
+			// Simple extraction - find caller field
+			callerStart := strings.Index(jsonStr, `"caller":`) + 10
+			if callerStart > 10 {
+				remaining := jsonStr[callerStart:]
+				if strings.HasPrefix(remaining, `"`) {
+					callerEnd := strings.Index(remaining[1:], `"`) + 1
+					if callerEnd > 0 {
+						return remaining[1:callerEnd]
+					}
+				}
+			}
+		}
+		return ""
+	case "err", "error":
+		// Extract error from the JSON buffer using improved parsing
+		return f.extractErrorValue(entry.buf)
+	default:
+		return ""
+	}
+}
+
+// DefaultHumanReadableFormatter is the default human-readable formatter instance
+var DefaultHumanReadableFormatter = &HumanReadableFormatter{
+	ShowTimestamp: true,
+	ShowLevel:     true,
+	ShowCaller:    false,
 }
