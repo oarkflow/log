@@ -793,6 +793,46 @@ func (e *Entry) WithContext(ctx context.Context) *Entry {
 	return e
 }
 
+// ToMap converts the entry's JSON data to a map[string]interface{}
+func (e *Entry) ToMap() (map[string]interface{}, error) {
+	if e == nil || len(e.buf) == 0 {
+		return nil, nil
+	}
+
+	var result map[string]interface{}
+	err := json.Unmarshal(e.buf, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// ToMapBeforeMsg converts the entry's current JSON data to a map[string]interface{}
+// This works on unfinalized entries (before calling Msg/Msgf)
+func (e *Entry) ToMapBeforeMsg() (map[string]interface{}, error) {
+	if e == nil || len(e.buf) == 0 {
+		return nil, nil
+	}
+
+	// Create a copy of the buffer and finalize it as JSON
+	jsonData := make([]byte, len(e.buf))
+	copy(jsonData, e.buf)
+
+	// If it doesn't end with }, complete the JSON
+	if len(jsonData) == 0 || jsonData[len(jsonData)-1] != '}' {
+		jsonData = append(jsonData, '}')
+	}
+
+	var result map[string]interface{}
+	err := json.Unmarshal(jsonData, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // Time append append t formated as string using time.RFC3339Nano.
 func (e *Entry) Time(key string, t time.Time) *Entry {
 	if e == nil {

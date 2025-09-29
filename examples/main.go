@@ -78,6 +78,28 @@ func main() {
 	// Test conditional formatting with error
 	templateLogger.Error().Err(fmt.Errorf("database connection failed")).Msg("Database operation failed")
 
+	// Test ToMap() function
+	entry := templateLogger.Error().Str("test_key", "test_value").Int("test_number", 42)
+	entry.Msg("Test message for ToMap")
+
+	// Now convert to map after the entry is finalized
+	data, err := entry.ToMap()
+	if err != nil {
+		fmt.Printf("Error converting to map: %v\n", err)
+	} else {
+		fmt.Printf("Entry data as map: %+v\n", data)
+	}
+
+	// Test ToMapBeforeMsg() function on unfinalized entry
+	unfinalizedEntry := templateLogger.Info().Str("before_msg_key", "before_msg_value").Int("before_msg_number", 123)
+	dataBefore, err := unfinalizedEntry.ToMapBeforeMsg()
+	if err != nil {
+		fmt.Printf("Error converting unfinalized entry to map: %v\n", err)
+	} else {
+		fmt.Printf("Unfinalized entry data as map: %+v\n", dataBefore)
+	}
+	unfinalizedEntry.Msg("This message comes after ToMapBeforeMsg")
+
 	// Debug: Test with explicit error field
 	templateLogger.Error().Str("error", "database connection failed").Msg("Database operation failed")
 }
